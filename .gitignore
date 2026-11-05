@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.bak
+*.bak.py
+*.bak-*
+*.log
+*.zip
+.env
+.cache
+.cache-*
+*token*
+*secret*

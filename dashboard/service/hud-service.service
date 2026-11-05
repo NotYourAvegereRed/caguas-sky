@@ -1,0 +1,17 @@
+[Unit]
+Description=HUD service (BlueZ media -> WebSocket)
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+User=zen
+# pw-dump (codec lookup) needs the user's PipeWire runtime dir
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+# 0.0.0.0 lets you test from your PC. In the car use 127.0.0.1 (only the Pi's own screen).
+Environment=HUD_BIND=0.0.0.0
+ExecStart=/home/zen/hud-venv/bin/python /home/zen/sky/service/hud_service.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

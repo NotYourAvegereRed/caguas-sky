@@ -1,0 +1,10 @@
+/* Sky-only: hide every ground / foreground layer so only sky, sun, moon,
+   stars, haze and weather particles remain. */
+html { background: #000; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+.bg-skyline, .bg-lighthouse, .bg-ocean, .bg-mountains, .bg-meadow,
+.bg-forestline, .bg-lake, .bg-dunes, .bg-icefield, .bg-tree, .bg-pumpkins,
+.bg-whale-host, .bg-deer { display: none !important; }
+
+/* Time-lapse preview: shorten the 60 s / 18 s transitions so they keep up. */
+.bg.sky-fast, .bg.sky-fast * { transition-duration: 0.5s !important; }

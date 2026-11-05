@@ -1,0 +1,23 @@
+/* Drive summary in the CVT panel (trip.js). Same glass panel, the gauges fade out underneath. */
+#panel-cvt .trip { position: absolute; inset: 0; padding: 14px 18px 16px; display: flex; flex-direction: column;
+  opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility 0s .5s; }
+#panel-cvt.panel--trip .trip { opacity: 1; visibility: visible; transition: opacity .6s ease .15s, visibility 0s; }
+#panel-cvt > .panel__head, #panel-cvt > .cvt { transition: opacity .4s ease; }
+#panel-cvt.panel--trip > .panel__head, #panel-cvt.panel--trip > .cvt { opacity: 0; }
+.trip__when { letter-spacing: .06em; color: rgba(242,244,255,.55); text-transform: none; font-variant-numeric: tabular-nums; }
+
+.trip__hero { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: auto; }
+.trip__hero div { display: flex; flex-direction: column; align-items: center; }
+.trip__hero b { font-size: 56px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums;
+  transform: scaleY(var(--px-aspect, 1)); }
+.trip__hero small { margin-top: 8px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: rgba(242,244,255,.6); }
+.trip__avg { margin-top: 16px; text-align: center; font-size: 14px; letter-spacing: .06em; color: rgba(242,244,255,.7);
+  font-variant-numeric: tabular-nums; white-space: pre; }
+
+.trip__grid { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  background: rgba(255,255,255,.08); border-radius: 14px; overflow: hidden; }
+.trip__grid div { background: rgba(10,12,26,.55); padding: 12px 8px 13px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.trip__grid small { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: rgba(242,244,255,.55); }
+.trip__grid b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.trip--alert .trip__grid div:last-child b { color: #ff9a3c; }
+@media (prefers-reduced-motion: reduce) { #panel-cvt .trip, #panel-cvt > .cvt, #panel-cvt > .panel__head { transition: none; } }

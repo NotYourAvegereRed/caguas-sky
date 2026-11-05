@@ -1,0 +1,11 @@
+[Unit]
+Description=Rogue AV CAN bus: factory radio emulator (steering wheel, cluster text, power state)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/rogue_can.py --log ""
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

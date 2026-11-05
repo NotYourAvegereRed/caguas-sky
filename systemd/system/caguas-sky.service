@@ -1,0 +1,12 @@
+[Unit]
+Description=Caguas sky background
+After=network.target
+
+[Service]
+User=zen
+WorkingDirectory=/home/zen/sky
+ExecStart=/usr/bin/python3 -m http.server 8080
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+/* Welcome animation (welcome.js). Only opacity / transform / letter-spacing: light on the Pi's GPU. */
+#welcome { position: fixed; inset: 0; z-index: 2147482000; pointer-events: none; display: none;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: #f2f4ff; -webkit-font-smoothing: antialiased; }
+#welcome.on, #welcome.hold { display: block; }
+.wl__black { position: absolute; inset: 0; background: #000; opacity: 0; }
+#welcome.hold .wl__black { opacity: 1; }
+#welcome.hold:not(.on) .wl__txt { visibility: hidden; }
+#welcome.on:not(.bye) .wl__black { animation: wl-black 1.4s ease-in-out both; }
+@keyframes wl-black { from { opacity: 1; } to { opacity: 0; } }
+.wl__veil { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,.55), #000 85%); }
+#welcome.on .wl__veil { animation: wl-veil 5.2s linear both; }
+@keyframes wl-veil { 0% { opacity: 1; } 24% { opacity: .62; } 52% { opacity: .62; } 72% { opacity: 0; } 100% { opacity: 0; } }
+
+.wl__txt { position: absolute; inset: 0; display: grid; place-items: center; }
+#welcome.on .wl__txt { animation: wl-out .8s 2.55s cubic-bezier(.4,0,.2,1) both; }
+@keyframes wl-out { to { opacity: 0; transform: translateY(-22px); } }
+.wl__inner { text-align: center; transform: scaleY(var(--px-aspect, 1)); margin-top: -18px; }
+
+.wl__greet { font-size: 22px; font-weight: 300; letter-spacing: .34em; text-transform: uppercase; color: rgba(242,244,255,.72); }
+.wl__name { font-size: 112px; font-weight: 700; line-height: 1.05; letter-spacing: .01em; margin: 6px 0 14px;
+  /* two layers: the moving sheen (transparent edges) over a solid base, so no part of the word is ever uncovered */
+  background-image: linear-gradient(100deg, transparent 40%, rgba(255,255,255,.95) 50%, transparent 60%), linear-gradient(#dfe3fb, #dfe3fb);
+  background-repeat: no-repeat; background-size: 260% 100%, 100% 100%; background-position: 130% 0, 0 0;
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
+.wl__sub { font-size: 15px; font-weight: 400; letter-spacing: .14em; color: rgba(242,244,255,.55); font-variant-numeric: tabular-nums; white-space: pre; }
+
+#welcome.on .wl__greet { animation: wl-in 1s .45s cubic-bezier(.2,.8,.2,1) both; }
+#welcome.on .wl__name  { animation: wl-name 1.4s .62s cubic-bezier(.2,.8,.2,1) both, wl-sheen 1.5s 1.35s ease-in-out both; }
+#welcome.on .wl__sub   { animation: wl-in .9s 1.3s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes wl-in   { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes wl-name { from { opacity: 0; letter-spacing: .32em; transform: translateY(14px); } to { opacity: 1; letter-spacing: .01em; transform: none; } }
+@keyframes wl-sheen { from { background-position: 130% 0, 0 0; } to { background-position: -30% 0, 0 0; } }
+
+/* panels: hidden while the greeting shows, then slide in from the sides (left / right) */
+.hud.hud--wl-pre .panel { opacity: 0; transform: translateX(-30px) scale(.98); transition: none; }
+.hud.hud--wl-pre .panel + .panel { transform: translateX(30px) scale(.98); }
+.hud--wl-in .panel { animation: wl-pl 1.1s cubic-bezier(.2,.8,.2,1) both; }
+.hud--wl-in .panel + .panel { animation: wl-pr 1.1s .1s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes wl-pl { from { opacity: 0; transform: translateX(-30px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes wl-pr { from { opacity: 0; transform: translateX(30px) scale(.98); } to { opacity: 1; transform: none; } }
+.hud--wl-in .panel::after { animation: hud-sheen 1.4s .45s ease-in-out both; }
+.hud--wl-in .panel + .panel::after { animation-delay: .6s; }
+.hud--wl-in .np__art { animation: hud-art 1.1s .25s cubic-bezier(.2,.8,.2,1) both; }
+.hud--wl-in .np__text, .hud--wl-in .np__prog, .hud--wl-in .np__controls, .hud--wl-in .cell { animation: hud-up .8s cubic-bezier(.2,.8,.2,1) both; }
+.hud--wl-in .np__text { animation-delay: .4s; } .hud--wl-in .np__prog { animation-delay: .5s; } .hud--wl-in .np__controls { animation-delay: .6s; }
+.hud--wl-in .cell:nth-child(1) { animation-delay: .25s; } .hud--wl-in .cell:nth-child(2) { animation-delay: .31s; }
+.hud--wl-in .cell:nth-child(3) { animation-delay: .37s; } .hud--wl-in .cell:nth-child(4) { animation-delay: .43s; }
+.hud--wl-in .cell:nth-child(5) { animation-delay: .49s; } .hud--wl-in .cell:nth-child(6) { animation-delay: .55s; }
+
+/* ---- bye: panels fade, greeting, everything ends in black ---- */
+.hud.hud--bye .panel { animation: wl-pout 1s cubic-bezier(.4,0,.2,1) both; }
+.hud.hud--bye .panel + .panel { animation-delay: .08s; }
+@keyframes wl-pout { to { opacity: 0; transform: translateY(8px) scale(.98); } }
+#welcome.bye .wl__veil { animation: wl-bveil 4s linear both; }
+@keyframes wl-bveil { 0% { opacity: 0; } 30% { opacity: .62; } 100% { opacity: .62; } }   /* stays: the RP2040 fades the backlight to black */
+#welcome.bye .wl__greet { animation: wl-in 1.2s .8s cubic-bezier(.2,.8,.2,1) both; }
+#welcome.bye .wl__name  { animation: wl-in 1.4s 1s cubic-bezier(.2,.8,.2,1) both; }
+#welcome.bye .wl__sub   { display: none; }
+#welcome.bye .wl__txt   { animation: none; }   /* the text stays while the backlight fades out */
+
+@media (prefers-reduced-motion: reduce) {
+  #welcome.on .wl__veil, #welcome.on .wl__txt, #welcome.on .wl__greet, #welcome.on .wl__name, #welcome.on .wl__sub,
+  .hud--wl-in .panel, .hud--wl-in .panel::after, .hud--wl-in .np__art, .hud--wl-in .cell { animation-duration: .01s; animation-delay: 0s; }
+}

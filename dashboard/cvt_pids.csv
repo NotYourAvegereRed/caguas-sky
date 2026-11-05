@@ -1,0 +1,47 @@
+PID (mode 22),Request,Header,Reply,Bytes,Name,Formula,Unit,Example raw -> value,Status,Used by dashboard,Notes
+110F,22110F,7E1,7E9,1,PRI pressure target,A * 0.025,MPa,20 -> 0.50,Confirmed vs CVTz50 (P 0.50 / D 0.60),Yes,Primary pulley target
+110B,22110B,7E1,7E9,1,PRI pressure actual,A * 0.025,MPa,15 -> 0.38,Confirmed vs CVTz50 (P 0.38 / D 0.53),Yes,Primary pulley actual
+1111,221111,7E1,7E9,1,SEC pressure target,A * 0.025,MPa,44 -> 1.10,Confirmed vs CVTz50 (P 1.10 / D 1.33),Yes,Secondary pulley target
+110A,22110A,7E1,7E9,1,SEC pressure actual,A * 0.025,MPa,43 -> 1.08,Confirmed vs CVTz50 (P 1.07),Yes,Secondary pulley actual; rises to ~2.1 MPa under throttle
+110E,22110E,7E1,7E9,1,Line pressure target,A * 0.025,MPa,53 -> 1.33,Confirmed vs CVTz50 (P 1.35 / D 2.33),Yes,Peaks ~3 MPa when shifting into D/R
+1105,221105,7E1,7E9,1,Slip rev,signed byte: A > 127 ? A - 256 : A,rpm,254 -> -2,Confirmed vs CVTz50 (P 9 / D 127+),Yes,Saturates at +127 standing in gear and -127 lifting off; ~0 when lockup is closed
+110C,22110C,7E1,7E9,1,CVT fluid temperature,A - 40,C,125 -> 85,Confirmed vs CVTz50 (82 C a few minutes earlier),Yes,
+1119,221119,7E1,7E9,1,Selector position,1 = P / 2 = R / 3 = N / 4 = D,-,4 -> D,Confirmed (watch test P/R/N/D),Yes,
+1101,221101,7E1,7E9,1,Vehicle speed (TCM),A,km/h,47 -> 47,Confirmed vs ECM 010D on a 52 min drive (r = 1.00),Yes,Reads ~2% below the ECM speed; 1102 and 1103 are identical copies
+1128,221128,7E1,7E9,1,Engine coolant temp (TCM copy),A - 40,C,134 -> 94,Confirmed vs ECM 0105 degree for degree,No,Duplicate of the ECM value
+112A,22112A,7E1,7E9,1,TCM lock-up status byte,raw,-,0 / 16 / 32 / 48 / 64+,Confirmed 2026-10-27,Yes (coast),"0 launch, 16 slipping on throttle, 32 engaging, 48 locked on throttle, 64 and up locked while coasting (pedal off)"
+1219,221219,7E1,7E9,2,TCC solenoid current (ISOLT1),(A*256+B) * 0.001,A,0x0262 = 610 -> 0.61,Confirmed 2026-10-27 (watch 12 drive),Yes,"0 when open; jumps to ~0.35 A and ramps up while the clutch engages; ~0.42 A cruise, up to 0.70 A under load. 121E is the same signal /4"
+121A / 121B / 121C,22121A..,7E1,7E9,2,Pressure solenoid currents (likely),(A*256+B) * 0.001,A,798 -> 0.80,Likely,No,~0.78-0.83 A always; matches the ISOL2 0.8 A idle spec
+1201 / 1202 / 1204 / 120F,221201..,7E1,7E9,2,Speed signals (rpm),A*256+B,rpm,~650 at idle,Likely,No,Follow engine/pulley speed
+1110,221110,7E1,7E9,1,Unknown (clutch pressure?),raw,-,0 in P/N; ~15 in D/R; up to 36,Unconfirmed,No,Rises with rpm in gear
+1106-1109,2211xx,7E1,7E9,1,Unknown (throttle / torque?),raw,-,0-165,Unconfirmed,No,Follow rpm and throttle (r ~0.75 with rpm)
+1113,221113,7E1,7E9,1,Unknown,raw,-,50-254 (254 idle),Unconfirmed,No,Falls with speed
+1114,221114,7E1,7E9,1,Unknown,raw,-,254 or 124,Unconfirmed,No,
+1104,221104,7E1,7E9,1,Unknown (constant),raw,-,3,Constant at standstill (not logged driving),No,
+1112,221112,7E1,7E9,1,Unknown (constant),raw,-,254,Constant at standstill (not logged driving),No,
+1125 / 1123 / 1126 / 1127 / 112B,2211xx,7E1,7E9,1,Not used on this car,-,-,always 0,Ruled out,No,1125 is NOT the lockup current (0 for the whole 52 min drive). The real one is 1219 (2 bytes)
+1100 / 1120,221100 / 221120,7E1,7E9,4,Supported-PID bitmaps,bit map,-,FF FF FB E7 / F1 E0 00 00,Confirmed,No,TCM data exists only in 221101-22112B
+1503,221503,7E1,7E9,-,Gear ratio (from internet table),-,-,7F 22 12,Rejected by the TCM,No,Gear ratio / lockup current / deterioration count are NOT in 2211xx
+010C,010C,7E0,7E8,2,Engine RPM (ECM),(A * 256 + B) / 4,rpm,0A 5A -> 662,Standard OBD,Yes,Read every 2nd loop (RPM_EVERY)
+0105,0105,7E0,7E8,1,Engine coolant (ECM),A - 40,C,7C -> 84,Standard OBD,No,
+010D,010D,7E0,7E8,1,Vehicle speed (ECM),A,km/h,2F -> 47,Standard OBD,No,Dashboard uses TCM 1101 instead (comes free in the multi-PID request)
+2103,2103,7E1,7E9,4,CVT fluid wear (deterioration counter),A*16777216+B*65536+C*256+D,-,00 00 00 6D -> 109,Confirmed vs CVTz50 2026-10-27,Yes (telemetry),Service 21 LID 03; Nissan limit 210000; read once a minute
+1201,221201,7E0,7E8,2,Engine RPM (ECM extended),(A*256+B)*12.5,rpm,00 35 -> 662,Confirmed vs Car Scanner 2026-10-27,Yes (telemetry),All 7E0 mode 22 DIDs need session 10C0 first
+1101,221101,7E0,7E8,1,Coolant temp,A - 50,C,86 -> 84 (0x86=134),Confirmed vs Car Scanner,Yes (telemetry + alert),
+111F,22111F,7E0,7E8,1,Engine oil temp,A - 50,C,7E -> 76,Confirmed vs Car Scanner,Yes (telemetry + alert),
+1106,221106,7E0,7E8,1,Intake air temp,A - 50,C,5F -> 45,Confirmed vs Car Scanner,Yes (telemetry),
+1111,221111,7E0,7E8,1,Fuel temp,A - 50,C,53 -> 33,Confirmed vs Car Scanner,Yes (telemetry),
+1278,221278,7E0,7E8,2,Oil pressure sensor (EOP),(A*256+B)*5,mV,01 28 -> 1480,Confirmed vs Car Scanner,Yes (telemetry + alert),psi = (V - 0.55) * 20.7 (unconfirmed)
+1209,221209,7E0,7E8,2,MAF,(A*256+B)/100,g/s,,Confirmed vs Car Scanner,Yes (telemetry),
+1117,221117,7E0,7E8,1,Engine load,A*100/256,%,,Confirmed vs Car Scanner,Yes (telemetry),
+110A,22110A,7E0,7E8,1,Timing advance,110 - A,deg,,Confirmed vs Car Scanner,Yes (telemetry),
+1123,221123,7E0,7E8,1,Short term fuel trim,A - 100,%,,Confirmed vs Car Scanner,Yes (telemetry),
+1125,221125,7E0,7E8,1,Long term fuel trim,A - 100,%,,Confirmed vs Car Scanner,Yes (telemetry),
+1206,221206,7E0,7E8,2,Injector pulse,(A*256+B)/100,ms,,Confirmed vs Car Scanner,Yes (telemetry),
+1103,221103,7E0,7E8,1,Control module voltage,A*0.08,V,,Confirmed vs Car Scanner,Yes (telemetry),
+1164,221164,7E0,7E8,1,Exhaust cam timing,A/2 - 64,degCA,,Confirmed vs Car Scanner,Yes (telemetry),
+122F,22122F,7E0,7E8,2,Exhaust VTC duty,(A*256+B)*100/1024,%,,Confirmed vs Car Scanner,Yes (telemetry),
+120F / 1210,22120F / 221210,7E0,7E8,2,Throttle sensor 1 / 2,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),
+120D / 120E,22120D / 22120E,7E0,7E8,2,Pedal sensor 1 / 2,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),
+1225,221225,7E0,7E8,2,A/F sensor B1S1,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),
+1223,221223,7E0,7E8,2,A/C pressure sensor,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),

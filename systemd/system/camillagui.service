@@ -1,0 +1,14 @@
+[Unit]
+Description=CamillaGUI
+After=camilladsp.service
+Wants=camilladsp.service
+
+[Service]
+User=zen
+WorkingDirectory=/home/zen/camilladsp/camillagui
+ExecStart=/home/zen/camilladsp/venv/bin/python main.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

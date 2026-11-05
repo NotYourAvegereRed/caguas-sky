@@ -1,0 +1,11 @@
+[Unit]
+Description=VEML7700 light sensor -> /dev/shm/caguas-lux (screen level for hud_service)
+
+[Service]
+User=zen
+ExecStart=/usr/bin/python3 /usr/local/bin/light_reader.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=CamillaDSP
+After=sound.target
+
+[Service]
+User=zen
+ExecStart=/home/zen/camilladsp/camilladsp -w -s /home/zen/camilladsp/statefile.yml -p 1234 -a 0.0.0.0 -o /home/zen/camilladsp/camilladsp.log -l info
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

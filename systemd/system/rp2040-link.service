@@ -1,0 +1,12 @@
+[Unit]
+Description=RP2040 power link
+After=dev-ttyAMA0.device
+Wants=dev-ttyAMA0.device
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/rp2040-link.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

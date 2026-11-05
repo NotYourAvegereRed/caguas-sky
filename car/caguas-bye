@@ -1,0 +1,5 @@
+#!/bin/sh
+# caguas-bye: animacion de bye del dashboard (la corre rp2040-link al apagar, despues del fade de la musica).
+# Le avisa a hud_service por /dev/shm/caguas-bye y espera lo que dura la animacion (termina en negro).
+python3 -c "import json,time,os; json.dump({'t': time.monotonic()}, open('/dev/shm/caguas-bye.tmp','w')); os.replace('/dev/shm/caguas-bye.tmp','/dev/shm/caguas-bye')"
+sleep 4.5
