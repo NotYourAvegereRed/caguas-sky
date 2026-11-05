@@ -4,7 +4,7 @@
 Reads the v3d driver's own counters (sysfs file 'gpu_stats': per queue, total jobs and total busy time in ns)
 and prints the % of time each queue was busy. 'render' is the one that matters for Chromium (drawing the
 dashboard); 'bin' is the geometry step before it. Also prints the GPU clock and the SoC temperature.
-Usage:  python3 ~/gpu_usage.py          (sudo only if it says it cannot read the file)
+Usage:  python3 ~/caguas-sky/tools/gpu_usage.py (sudo only if it says it cannot read the file)
 """
 import glob, subprocess, sys, time
 
