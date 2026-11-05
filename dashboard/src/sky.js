@@ -12,7 +12,7 @@ if (speed > 1) {
 const CONFIG = {
   location: { latitude: 18.234, longitude: -66.049, name: "Caguas, PR" },
   locality: "coastal",      // auto | urban | coastal | tropical | lake | mountain | forest | meadow | desert | polar
-  motion: new URLSearchParams(location.search).get("motion") || "calm",   // still | calm | full (?motion=still for tests)
+  motion: new URLSearchParams(location.search).get("motion") || "still",   // still: calm cost ~1 core (101% vs 4% CPU, Nov 5); ?motion=calm to preview
   atmosphere: "balanced",   // soft | balanced | vivid
   readability: "high"       // minimal | standard | high
 };
