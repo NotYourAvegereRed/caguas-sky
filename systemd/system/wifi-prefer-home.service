@@ -1,0 +1,7 @@
+[Unit]
+Description=Switch from phone hotspot to home Wi-Fi when home is in range
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wifi-prefer-home.sh

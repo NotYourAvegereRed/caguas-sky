@@ -1,0 +1,9 @@
+[Unit]
+Description=Check every 2 min whether home Wi-Fi is back in range
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
