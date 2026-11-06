@@ -8,7 +8,7 @@ const Q = new URLSearchParams(location.search);
 const page = document.getElementById("page-dsp");
 const CH = [["IN", "L"], ["IN", "R"], ["TW", "L"], ["TW", "R"], ["MID", "L"], ["MID", "R"], ["MB", "L"], ["MB", "R"], ["SUB", ""], ["SUB", "2"]];
 const FLOOR = -60, CLIP_DB = -0.5, HOLD_MS = 1500, FALL_DB_S = 20;
-const ADJ = [["bass", "BASS"], ["treble", "TREBLE"], ["sub", "SUB"]];   // bass / treble = shelf filters, sub = fader Aux1
+const ADJ = [["sub", "SUB"], ["treble", "TREBLE"], ["bass", "BASS"]];   // sub = fader Aux1 (sub outputs only); treble / bass = shelves on the input
 
 page.innerHTML = `
 <div class="d-stage">
