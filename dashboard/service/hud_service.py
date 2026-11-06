@@ -104,6 +104,9 @@ VOL_MIN_DB, VOL_MAX_DB = -60.0, 0.0
 DSP_CONFIGS = os.path.expanduser(os.environ.get("HUD_DSP_CONFIGS", "~/camilladsp/configs"))   # presets = *.yml here, not test_*
 DSP_DEFAULT = "rogue_xover.yml"          # loaded if CamillaDSP ever starts with no config (statefile lost it, 2026-11-05)
 SUB_FADER, SUB_MIN_DB, SUB_MAX_DB = 1, -12.0, 12.0   # Aux1 = the sub_level Volume filter in every preset
+TONE = {"bass": "Bass", "treble": "Treble"}         # shelf filters in every preset (same names CamillaGUI's Equalizer uses)
+TONE_MIN, TONE_MAX = -12.0, 12.0
+DSP_TONE_FILE = os.path.expanduser(os.environ.get("HUD_DSP_TONE", "~/.config/hud/dsp.json"))  # {"bass": dB, "treble": dB}
 LIGHTS_FILE = os.environ.get("HUD_LIGHTS_FILE", "/dev/shm/caguas-lights")
 LUX_FILE = os.environ.get("HUD_LUX_FILE", "/dev/shm/caguas-lux")      # light_reader.py: screen level from the VEML7700
 DISPLAY_FILE = os.path.expanduser(os.environ.get("HUD_DISPLAY_FILE", "~/.config/hud/display.json"))
@@ -374,6 +377,24 @@ def dsp_presets():
             continue
         out.append({"file": f, "title": title if title and title != "null" else f[:-4]})
     return out
+
+
+def load_tone():
+    try:
+        with open(DSP_TONE_FILE) as f:
+            d = json.load(f)
+        return {k: max(TONE_MIN, min(TONE_MAX, float(d[k]))) for k in TONE if k in d}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def save_tone(d):
+    """live patches are not in the .yml: keep them here and re-apply after every (re)load"""
+    os.makedirs(os.path.dirname(DSP_TONE_FILE), exist_ok=True)
+    tmp = DSP_TONE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f)
+    os.replace(tmp, DSP_TONE_FILE)
 
 
 class DspVolume:
@@ -732,6 +753,7 @@ class Hud:
         self.vol = DspVolume(DSP_WS)
         self.view = "main"            # what the page shows (the DSP page polls levels only while open)
         self.dsp_dirty = asyncio.Event()
+        self.tone_reapply = True        # saved bass / treble go back in after start, preset change, reload
         self.display = Display()
         self.trip = Trip()
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -960,18 +982,27 @@ class Hud:
             if any(p["file"] == f for p in dsp_presets()):
                 await self.vol._cmd("SetConfigFilePath", os.path.join(DSP_CONFIGS, f))
                 await self.vol._cmd("Reload")
+                self.tone_reapply = True
                 print(f"DSP preset: {f}", flush=True)
             self.dsp_dirty.set()
             return
-        if cmd == "dsp_sub":                   # {"cmd": "dsp_sub", "step": 1 | -1}: sub level in 1 dB steps
+        if cmd == "dsp_adj":                   # {"cmd": "dsp_adj", "k": "sub"|"bass"|"treble", "step": 1 | -1}: 1 dB steps
+            k = (msg or {}).get("k")
             try:
                 step = max(-1.0, min(1.0, float((msg or {}).get("step", 0))))
             except (TypeError, ValueError):
                 return
-            cur = await self.vol._cmd("GetFaderVolume", SUB_FADER)
-            if cur:
-                db = round(max(SUB_MIN_DB, min(SUB_MAX_DB, float(cur[1]) + step)), 1)
-                await self.vol._cmd("SetFaderVolume", [SUB_FADER, db])
+            if k == "sub":
+                cur = await self.vol._cmd("GetFaderVolume", SUB_FADER)
+                if cur:
+                    db = round(max(SUB_MIN_DB, min(SUB_MAX_DB, float(cur[1]) + step)), 1)
+                    await self.vol._cmd("SetFaderVolume", [SUB_FADER, db])
+            elif k in TONE:
+                cur = (await self.dsp_tone()).get(k)
+                if cur is not None:
+                    db = round(max(TONE_MIN, min(TONE_MAX, cur + step)), 1)
+                    await self.vol._cmd("PatchConfig", {"filters": {TONE[k]: {"parameters": {"gain": db}}}})
+                    saved = load_tone(); saved[k] = db; save_tone(saved)
             self.dsp_dirty.set()
             return
         if cmd == "vol":                       # {"cmd": "vol", "db": -23.5} from the touch slider
@@ -1037,12 +1068,30 @@ class Hud:
             await v._cmd("Reload")
             print(f"CamillaDSP had no config: loaded {DSP_DEFAULT}", flush=True)
             state = await v._cmd("GetState")
+            self.tone_reapply = True
+        tone = await self.dsp_tone()
+        if self.tone_reapply:
+            self.tone_reapply = False
+            for k, db in load_tone().items():
+                if tone.get(k) is not None and tone[k] != db:
+                    await v._cmd("PatchConfig", {"filters": {TONE[k]: {"parameters": {"gain": db}}}})
+                    tone[k] = db
         sub = await v._cmd("GetFaderVolume", SUB_FADER)
         load = await v._cmd("GetProcessingLoad")
         return {"state": state, "config": os.path.basename(path), "presets": dsp_presets(),
                 "rate": await v._cmd("GetCaptureRate"), "load": round(load, 1) if load is not None else None,
-                "clipped": await v._cmd("GetClippedSamples"), "sub_db": sub[1] if sub else None,
-                "sub_min": SUB_MIN_DB, "sub_max": SUB_MAX_DB, "codec": self.codec, "vol": v.state()}
+                "clipped": await v._cmd("GetClippedSamples"), "codec": self.codec, "vol": v.state(),
+                "adj": {"bass": tone.get("bass"), "treble": tone.get("treble"), "sub": sub[1] if sub else None},
+                "adj_range": {"bass": [TONE_MIN, TONE_MAX], "treble": [TONE_MIN, TONE_MAX], "sub": [SUB_MIN_DB, SUB_MAX_DB]}}
+
+    async def dsp_tone(self):
+        """{"bass": dB | None, "treble": dB | None} from the running config (None: preset has no such filter)"""
+        try:
+            cfg = json.loads(await self.vol._cmd("GetConfigJson") or "{}")
+        except ValueError:
+            return {}
+        flt = cfg.get("filters") or {}
+        return {k: (flt.get(name) or {}).get("parameters", {}).get("gain") for k, name in TONE.items()}
 
     async def dsp_loop(self):
         r1 = lambda xs: [round(x, 1) for x in xs or []]

@@ -27,20 +27,22 @@
 .d-side { position: absolute; left: 634px; top: 62px; width: 378px; height: 526px; padding: 16px 18px;
   background: linear-gradient(180deg,var(--panel2),var(--panel)); border: 1px solid var(--line); box-sizing: border-box;
   display: flex; flex-direction: column; }
-.d-presets { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
-.d-preset { height: 62px; font: 700 italic 24px/1 TBarlow; letter-spacing: 1px; color: var(--ink); text-align: left; padding: 0 20px;
+.d-presets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.d-preset { height: 52px; font: 700 italic 24px/1 TBarlow; letter-spacing: 1px; color: var(--ink); text-align: left; padding: 0 20px;
   background: var(--panel); border: 1px solid var(--line2); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .d-preset.on { background: var(--monarch); border-color: var(--monarch); color: #0b0c0e; }
 .d-preset.pending { border-color: var(--monarch); }
 .d-preset:active { background: var(--line2); }
-.d-sub { display: flex; align-items: center; gap: 14px; }
-.d-btn { width: 84px; height: 84px; flex: none; font: 700 44px/1 TBarlow; color: var(--ink); background: var(--panel);
+.d-adjs { display: flex; flex-direction: column; gap: 10px; }
+.d-adj { display: flex; align-items: center; gap: 10px; }
+.d-adjl { width: 62px; flex: none; font: 700 italic 15px/1 TBarlow; letter-spacing: 1px; color: var(--dim); }
+.d-btn { width: 64px; height: 64px; flex: none; font: 700 38px/1 TBarlow; color: var(--ink); background: var(--panel);
   border: 1px solid var(--line2); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .d-btn:active { background: var(--monarch); color: #0b0c0e; }
 .d-subv { flex: 1; text-align: center; }
-.d-subv b { font: 700 italic 52px/1 TBarlow; font-variant-numeric: tabular-nums; }
-.d-subv u { text-decoration: none; font: 600 15px/1 TBarlow; color: var(--dim); margin-left: 4px; }
-.d-subbar { position: relative; height: 8px; margin-top: 12px; background: var(--line); }
+.d-subv b { font: 700 italic 36px/1 TBarlow; font-variant-numeric: tabular-nums; }
+.d-subv u { text-decoration: none; font: 600 13px/1 TBarlow; color: var(--dim); margin-left: 3px; }
+.d-subbar { position: relative; height: 6px; margin-top: 8px; background: var(--line); }
 .d-subbar .c { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--dim); }
 .d-subbar .f { position: absolute; top: 0; bottom: 0; background: var(--monarch); }
 .d-vol { margin-top: auto; font: 600 14px/1 TMono; color: var(--dim); }

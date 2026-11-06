@@ -214,6 +214,22 @@ filters:
       freq: 90
       gain: 4
       slope: 6
+  Bass:
+    type: Biquad
+    description: 'tone: bass (dashboard / CamillaGUI Equalizer)'
+    parameters:
+      type: Lowshelf
+      freq: 85
+      q: 0.9
+      gain: 0
+  Treble:
+    type: Biquad
+    description: 'tone: treble (dashboard / CamillaGUI Equalizer)'
+    parameters:
+      type: Highshelf
+      freq: 6500
+      q: 0.7
+      gain: 0
 mixers:
   stereo_to_8ch:
     channels:
@@ -305,6 +321,15 @@ mixers:
         mute: false
         scale: dB
 pipeline:
+- type: Filter
+  channels:
+  - 0
+  - 1
+  names:
+  - Bass
+  - Treble
+  description: tone controls
+  bypassed: null
 - type: Filter
   channels:
   - 0

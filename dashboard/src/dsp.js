@@ -1,12 +1,14 @@
 // Audio / CamillaDSP page: swipe RIGHT from the main screen (telemetry is the other way).
-// Live meters (2 in + 8 out), presets (any ~/camilladsp/configs/*.yml except test_*), sub level (fader Aux1), status.
+// Live meters (2 in + 8 out), presets (any ~/camilladsp/configs/*.yml except test_*), bass / treble (shelf filters,
+// same ones CamillaGUI's Equalizer moves) and sub level (fader Aux1), status.
 // Data in: "hud-dsp" events from hud.js -> {dsp: status | null} (1/s) and {dsp_lv: {in, in_pk, out, out_pk}} (10/s, page open only).
-// Data out: window.hud.send({cmd: "dsp_preset", file}) / ({cmd: "dsp_sub", step: +1 | -1}).   ?demo=1 fake data, ?page=dsp opens here.
+// Data out: window.hud.send({cmd: "dsp_preset", file}) / ({cmd: "dsp_adj", k: "bass"|"treble"|"sub", step: +1 | -1}).   ?demo=1 fake data, ?page=dsp opens here.
 
 const Q = new URLSearchParams(location.search);
 const page = document.getElementById("page-dsp");
 const CH = [["IN", "L"], ["IN", "R"], ["TW", "L"], ["TW", "R"], ["MID", "L"], ["MID", "R"], ["MB", "L"], ["MB", "R"], ["SUB", ""], ["SUB", "2"]];
 const FLOOR = -60, CLIP_DB = -0.5, HOLD_MS = 1500, FALL_DB_S = 20;
+const ADJ = [["bass", "BASS"], ["treble", "TREBLE"], ["sub", "SUB"]];   // bass / treble = shelf filters, sub = fader Aux1
 
 page.innerHTML = `
 <div class="d-stage">
@@ -25,10 +27,11 @@ page.innerHTML = `
   </section>
   <section class="d-side">
     <h3>PRESET</h3><div class="d-presets" id="d-presets"></div>
-    <h3>SUB LEVEL</h3>
-    <div class="d-sub"><button class="d-btn" data-sub="-1" aria-label="Sub down">−</button>
-      <div class="d-subv"><b id="d-subdb">--</b><u>dB</u><div class="d-subbar"><i class="c"></i><i class="f" id="d-subfill"></i></div></div>
-      <button class="d-btn" data-sub="1" aria-label="Sub up">+</button></div>
+    <h3>TONE</h3>
+    <div class="d-adjs">${ADJ.map(([k, l]) => `<div class="d-adj"><span class="d-adjl">${l}</span>
+      <button class="d-btn" data-adj="${k}" data-step="-1" aria-label="${l} down">−</button>
+      <div class="d-subv"><b id="d-${k}">--</b><u>dB</u><div class="d-subbar"><i class="c"></i><i class="f" id="d-${k}fill"></i></div></div>
+      <button class="d-btn" data-adj="${k}" data-step="1" aria-label="${l} up">+</button></div>`).join("")}</div>
     <div class="d-vol" id="d-vol">VOLUME --</div>
   </section>
 </div>`;
@@ -56,12 +59,12 @@ function setStatus(st) {
     $("d-presets").innerHTML = (st?.presets ?? []).map((p) =>
       `<button class="d-preset${p.file === st.config ? " on" : ""}" data-file="${p.file}">${p.title}</button>`).join("");
   }
-  const sub = st?.sub_db;
-  $("d-subdb").textContent = sub == null ? "--" : `${sub > 0 ? "+" : ""}${sub.toFixed(0)}`;
-  const lo = st?.sub_min ?? -12, hi = st?.sub_max ?? 12, p = (x) => (x - lo) / (hi - lo) * 100;
-  const f = $("d-subfill");
-  if (sub == null) f.style.width = "0";
-  else { f.style.left = `${Math.min(p(0), p(sub))}%`; f.style.width = `${Math.abs(p(sub) - p(0))}%`; }
+  for (const [k] of ADJ) {
+    const v = st?.adj?.[k], [lo, hi] = st?.adj_range?.[k] ?? [-12, 12], p = (x) => (x - lo) / (hi - lo) * 100, f = $(`d-${k}fill`);
+    $(`d-${k}`).textContent = v == null ? "--" : `${v > 0 ? "+" : ""}${v.toFixed(0)}`;
+    if (v == null) f.style.width = "0";
+    else { f.style.left = `${Math.min(p(0), p(v))}%`; f.style.width = `${Math.abs(p(v) - p(0))}%`; }
+  }
   const v = st?.vol;
   $("d-vol").textContent = !v ? "VOLUME --" : v.mute ? "MUTED" : `VOLUME ${v.db.toFixed(1)} dB`;
 }
@@ -82,9 +85,9 @@ function setLevels(lv) {
 }
 
 page.addEventListener("click", (e) => {
-  const pre = e.target.closest(".d-preset"), sub = e.target.closest("[data-sub]");
+  const pre = e.target.closest(".d-preset"), adj = e.target.closest("[data-adj]");
   if (pre && !pre.classList.contains("on")) { window.hud?.send?.({ cmd: "dsp_preset", file: pre.dataset.file }); pre.classList.add("pending"); }
-  if (sub) window.hud?.send?.({ cmd: "dsp_sub", step: Number(sub.dataset.sub) });
+  if (adj) window.hud?.send?.({ cmd: "dsp_adj", k: adj.dataset.adj, step: Number(adj.dataset.step) });
 });
 window.addEventListener("hud-dsp", (ev) => {
   const d = ev.detail;
@@ -95,13 +98,14 @@ setStatus(null); setLevels(null);
 
 // ---- demo (?demo=1): music-ish levels, presets and sub buttons work locally ----
 if (Q.get("demo") === "1") {
-  const st = { state: "Running", config: "rogue_xover.yml", rate: 48000, load: 0.6, clipped: 0, sub_db: 0, sub_min: -12, sub_max: 12, codec: "ldac",
+  const st = { state: "Running", config: "rogue_xover.yml", rate: 48000, load: 0.6, clipped: 0, codec: "ldac",
+               adj: { bass: 0, treble: 0, sub: 0 }, adj_range: { bass: [-12, 12], treble: [-12, 12], sub: [-12, 12] },
                vol: { db: -25, mute: false }, presets: [{ file: "rogue_xover.yml", title: "Normal" }, { file: "bass_plus.yml", title: "Bass +" }, { file: "night.yml", title: "Night" }] };
   window.hud = window.hud || {};
   const send0 = window.hud.send;
   window.hud.send = (c) => {
     if (c?.cmd === "dsp_preset") st.config = c.file;
-    else if (c?.cmd === "dsp_sub") st.sub_db = Math.max(-12, Math.min(12, st.sub_db + c.step));
+    else if (c?.cmd === "dsp_adj") st.adj[c.k] = Math.max(-12, Math.min(12, st.adj[c.k] + c.step));
     else return send0?.(c);
     setStatus(st);
   };
