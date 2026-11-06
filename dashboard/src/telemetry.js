@@ -31,9 +31,9 @@ page.innerHTML = `
   <div class="t-head">
     <div class="t-brand"><b>ROGUE</b><span>TELEMETRY</span></div>
     <div class="t-tabs" id="t-tabs">
-      <i class="t-tabbg" style="left:0"></i><i class="t-tabbg" style="left:122px"></i><i class="t-tabbg" style="left:244px"></i>
+      <i class="t-tabbg" style="left:0"></i><i class="t-tabbg" style="left:122px"></i><i class="t-tabbg" style="left:244px"></i><i class="t-tabbg" style="left:366px"></i>
       <i class="t-hl" id="t-hl"></i>
-      <div class="t-tab on" data-t="all">ALL</div><div class="t-tab" data-t="engine">ENGINE</div><div class="t-tab" data-t="cvt">CVT</div>
+      <div class="t-tab on" data-t="all">ALL</div><div class="t-tab" data-t="engine">ENGINE</div><div class="t-tab" data-t="cvt">CVT</div><div class="t-tab" data-t="dyno">DYNO</div>
     </div>
     <div class="t-status"><span>ECM<i class="t-dot" id="t-ecm"></i></span><span>TCM<i class="t-dot" id="t-tcm"></i></span>
       <span class="t-hz" id="t-hz">-- HZ</span><span class="t-clock" id="t-clock">--:--</span></div>
@@ -116,13 +116,18 @@ const colCvt = (i) => `<div class="t-col" style="--i:${i}"><h3>CVT</h3>${item("c
 const strip = (i) => `<div class="t-strip" style="--i:${i}">${["ecmv", "thr1", "thr2", "ped1", "ped2", "af", "ac"].map((k) =>
   `<div data-f="${k}"><div class="t-lbl">${F[k].l}</div><div class="t-val"><b>--</b><u>${F[k].u}</u></div></div>`).join("")}</div>`;
 
+const LOCK_TILE = `<div class="t-val" style="font-size:60px"><b data-lockbig>--</b></div><div class="t-sub">slip <span data-slip>--</span> rpm · TCC <span data-tcc>--</span></div><div class="t-bar"><i class="f" data-tccbar></i></div>`;
 const VIEWS = {
   all: () => `<div class="t-grid" style="grid-template-columns:1fr 1fr 1fr 1.08fr">${colThermal(0)}${colOil(1)}${colFuel(2)}${colCvt(3)}</div>${strip(4)}`,
   engine: () => `<div class="t-grid" style="grid-template-columns:1fr 1fr 1fr">${colThermal(0)}${colOil(1)}${colFuel(2)}</div>${strip(3)}`,
   cvt: () => `<div class="t-tiles">${tile("pri", 0)}${tile("sec", 1)}${tile("cvtt2", 2)}
-    ${tile("lock", 3, `<div class="t-val" style="font-size:60px"><b data-lockbig>--</b></div><div class="t-sub">slip <span data-slip>--</span> rpm · TCC <span data-tcc>--</span></div><div class="t-bar"><i class="f" data-tccbar></i></div>`)}
-    ${tile("wear2", 4)}${tile("ratio", 5)}</div>`
+    ${tile("lock", 3, LOCK_TILE)}
+    ${tile("wear2", 4)}${tile("ratio", 5)}</div>`,
+  dyno: () => `<div class="t-tiles">${tile("dyno", 0, `<div class="t-val"><b id="dy-time">--</b><u>s</u></div>
+    <div class="t-sub" id="dy-sub">--</div><div class="t-sub" id="dy-best" style="margin-top:8px"></div>`)}
+    ${tile("hp", 1)}${tile("engnm", 2)}${tile("sec", 3)}${tile("lock", 4, LOCK_TILE)}${tile("whp", 5)}</div>`
 };
+F.dyno = { l: "0-60 mph" };
 F.lock = { l: "Torque converter" };
 
 // ---------------------------------------------------------------- render / update
@@ -174,9 +179,10 @@ function update() {
   }
   // status line
   $("t-ecm").classList.toggle("on", !!E); $("t-tcm").classList.toggle("on", !!C);
-  const hz = tab === "cvt" ? E?.cvt_hz : E?.eng_hz;
+  const hz = tab === "cvt" || tab === "dyno" ? E?.cvt_hz : E?.eng_hz;
   $("t-hz").textContent = hz == null ? "-- HZ" : `${hz.toFixed(1)} HZ`;
   rpmTarget = engineFresh() ? E.rpm : C?.rpm ?? E?.rpm ?? null;
+  if (tab === "dyno") drawDyno();
 }
 let engTs = 0;
 const engineFresh = () => E?.rpm != null && performance.now() - engTs < 2000 && tab !== "cvt";
@@ -205,6 +211,46 @@ function sweep() {                                     // 0 -> 7000 -> current, 
   (function f(t) { const k = Math.min(1, (t - t0) / D), end = rpmTarget ?? 0;
     drawRpm(k < .5 ? 7000 * Math.sin(k * Math.PI) : end + (7000 - end) * Math.sin(k * Math.PI)); rpmShown = end;
     if (k < 1) requestAnimationFrame(f); })(t0);
+}
+
+// ---------------------------------------------------------------- dyno: 0-60 mph timer (for show), locked while the CVT is hot
+const DYNO_MAX_C = 82, KMH60 = 96.56, MOVE_KMH = 1, RUN_MAX_MS = 30000;
+// one step of the timer. s = {st, t0, last}; st: locked | wait (moving, stop to arm) | ready (stopped) | run | done
+function dynoStep(s, now, kmh, tempC) {
+  if (tempC == null || tempC > DYNO_MAX_C) return { ...s, st: "locked" };   // no temp = no dyno
+  if (kmh == null) return { ...s, st: "wait" };
+  if (s.st === "run") {
+    if (kmh >= KMH60) return { ...s, st: "done", last: (now - s.t0) / 1000 };
+    if (kmh < MOVE_KMH) return { ...s, st: "ready" };                     // stopped again: re-arm
+    return now - s.t0 > RUN_MAX_MS ? { ...s, st: "wait" } : s;           // too slow: give up
+  }
+  if (kmh < MOVE_KMH) return { ...s, st: "ready" };
+  if (s.st === "ready") return { ...s, st: "run", t0: now };              // first sample moving: clock starts
+  return s.st === "done" ? s : { ...s, st: "wait" };
+}
+let DY = { st: "wait", t0: 0, last: null }, dyBest = null;
+try { dyBest = Number(localStorage.getItem("dyno-best")) || null; } catch {}
+function dynoTick() {
+  const prev = DY.st;
+  DY = dynoStep(DY, performance.now(), C?.speed_kmh, C?.temp_c);
+  if (prev === "run" && DY.st === "done" && (dyBest == null || DY.last < dyBest)) {
+    dyBest = DY.last; try { localStorage.setItem("dyno-best", String(dyBest)); } catch {}
+  }
+}
+function drawDyno() {
+  const t = $("dy-time"); if (!t) return;
+  const mph = C?.speed_kmh == null ? "--" : Math.round(C.speed_kmh / 1.609), temp = C?.temp_c;
+  const [v, msg] = {
+    locked: [DY.last, temp == null ? "LOCKED · no CVT temp" : `LOCKED · CVT ${Math.round(temp)} °C · under ${DYNO_MAX_C} to run`],
+    wait:   [DY.last, `STOP TO ARM · ${mph} mph`],
+    ready:  [DY.last, "READY · starts when you move"],
+    run:    [(performance.now() - DY.t0) / 1000, `RUNNING · ${mph} mph`],
+    done:   [DY.last, "DONE · stop to arm again"],
+  }[DY.st];
+  t.textContent = v == null ? "--" : v.toFixed(DY.st === "run" ? 1 : 2);
+  $("dy-sub").textContent = msg;
+  $("dy-best").textContent = `best ${dyBest == null ? "--" : dyBest.toFixed(2)} s`;
+  t.closest(".t-tile").classList.toggle("st-crit", DY.st === "locked");
 }
 
 // ---------------------------------------------------------------- alerts (banner here, badge on the main screen)
@@ -244,7 +290,7 @@ function setAlerts(list) {
 const hl = $("t-hl");
 function setTab(t) {
   if (!VIEWS[t]) return;
-  const idx = ["all", "engine", "cvt"].indexOf(t);
+  const idx = ["all", "engine", "cvt", "dyno"].indexOf(t);
   hl.style.left = `${idx * 122}px`;
   document.querySelectorAll(".t-tab").forEach((e) => e.classList.toggle("on", e.dataset.t === t));
   if (t === tab) return;
@@ -334,6 +380,7 @@ window.addEventListener("hud-cvt", (ev) => {
     if (C == null && performance.now() - cvtNullSince > 60000) introPending = true;   // car was off a while: new trip
     C = d;
     takePower(d);
+    dynoTick();
   }
   update();
 });

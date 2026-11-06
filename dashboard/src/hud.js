@@ -425,6 +425,9 @@ function demoCvt(t) {
     slip_rpm: [127, 127 - 90 * inPh, -3, -4, -127][ph] + (ph === 2 || ph === 3 ? 2 * Math.sin(t) : 0),
     tcc_a: [0, 0.35 + 0.1 * inPh, 0.62, 0.42, 0.42 * (1 - inPh)][ph],
     rpm: new URLSearchParams(location.search).get("startup") === "1" && t < 2.5 ? 0 : 750,
+    // 20 s launch loop for the Dyno tab: stopped 3 s, 0 -> ~110 km/h in ~9 s, back down
+    speed_kmh: Math.round(t % 20 < 3 ? 0 : t % 20 < 12 ? 110 * Math.min(1, ((t % 20 - 3) / 9) ** 0.8) : 110 * (20 - t % 20) / 8),
+    gear: "D",
     hz: 15.4
   };
 }

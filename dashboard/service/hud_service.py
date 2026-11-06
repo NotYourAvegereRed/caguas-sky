@@ -19,7 +19,7 @@ CVT data (cvt_reader.py, vLinker FS on USB, read-only) is pushed separately, ~12
 null = no adapter / car off. Kept apart from "media" so the cover image is not resent 12x a second.
 
 Telemetry window (swipe left on the main screen):
-    page -> server: {"cmd": "view", "view": "main" | "all" | "engine" | "cvt"}   what the screen shows,
+    page -> server: {"cmd": "view", "view": "main" | "all" | "engine" | "cvt" | "dyno"}   what the screen shows,
                     so cvt_reader only polls what is needed (main = CVT + background alert reads)
     server -> page: {"eng": {rpm, coolant_c, oil_c, iat_c, fuel_c, eop_mv, eop_psi, eop_warn_mv, eop_crit_mv,
                              maf_gs, load_pct, timing_deg, stft_pct, ltft_pct, inj_ms, ecm_v, exhcam_deg,
@@ -923,7 +923,7 @@ class Hud:
         await self.find_players()
 
     async def command(self, cmd, msg=None):
-        if cmd == "view":                      # {"cmd": "view", "view": "main"|"all"|"engine"|"cvt"}
+        if cmd == "view":                      # {"cmd": "view", "view": "main"|"all"|"engine"|"cvt"|"dyno"}
             self.cvt.set_view((msg or {}).get("view"))
             return
         if cmd == "vol":                       # {"cmd": "vol", "db": -23.5} from the touch slider

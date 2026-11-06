@@ -81,19 +81,19 @@
 .np__title { font-size: 28px; font-weight: 650; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np__artist { font-size: 18px; color: rgba(242,244,255,.76); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np__prog { width: 100%; }
-.np__bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; }
+.np__bar { height: 10px; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; }
 .np__bar > div { height: 100%; width: 0; background: #f2f4ff; border-radius: inherit; }
-.np__times { display: flex; justify-content: space-between; margin-top: 5px; font-size: 13px; color: rgba(242,244,255,.64); font-variant-numeric: tabular-nums; }
-.np__controls { display: flex; align-items: center; justify-content: center; gap: 30px; }
+.np__times { display: flex; justify-content: space-between; margin-top: 6px; font-size: 16px; color: rgba(242,244,255,.7); font-variant-numeric: tabular-nums; }
+.np__controls { display: flex; align-items: center; justify-content: center; gap: 34px; }   /* big targets: used while driving */
 .btn {
-  width: 62px; height: calc(62px * var(--px-aspect)); border-radius: 50%; border: 1px solid rgba(255,255,255,.14);
+  width: 76px; height: calc(76px * var(--px-aspect)); border-radius: 50%; border: 1px solid rgba(255,255,255,.14);
   background: rgba(255,255,255,.09); color: #f2f4ff; display: grid; place-items: center; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .btn:active { background: rgba(255,255,255,.22); }
-.btn svg { width: 25px; height: calc(25px * var(--px-aspect)); fill: currentColor; }
-.btn--main { width: 74px; height: calc(74px * var(--px-aspect)); background: rgba(255,255,255,.2); }
-.btn--main svg { width: 31px; height: calc(31px * var(--px-aspect)); }
+.btn svg { width: 30px; height: calc(30px * var(--px-aspect)); fill: currentColor; }
+.btn--main { width: 92px; height: calc(92px * var(--px-aspect)); background: rgba(255,255,255,.2); }
+.btn--main svg { width: 38px; height: calc(38px * var(--px-aspect)); }
 /* volume: One UI-style pill inside the now-playing panel, left of the cover. Position/size set by placeVol(). */
 .panel--np { position: relative; }
 .vol__pill {

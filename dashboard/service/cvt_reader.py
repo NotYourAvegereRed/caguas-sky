@@ -211,6 +211,7 @@ TIER_1 = [d for d in ECM_PIDS if d not in TIER_4 and d not in TIER_8]   # rpm, o
 # 2026-10-28 laptop test: sensor 2s in TIER_4 + CVT every 2nd round on ALL -> 4.54 rounds/s (was 3.44).
 # No faster route: the ECM refuses even 2 DIDs per request (7F 22 12), and its service 21 blocks (01-05, A0, A1)
 # never changed while revving (not live data).
+DYNO_POWER_EVERY = 2             # Dyno tab: torque / power every 2nd CVT loop (hp / Nm move faster, speed still ~fast)
 CVT_TAB_POWER_EVERY = 4           # CVT tab: torque / ratio request every 4th CVT loop (keeps the CVT near full speed)
 ALL_CVT_EVERY = 2                 # ALL tab: CVT request every 2nd round (it is an overview; CVT tab = full speed)
 
@@ -427,7 +428,7 @@ class CvtReader:
             self._warn("status", f"CVT reader: can't write {ENGINE_FILE}: {e}")
 
     def set_view(self, view):
-        if view in ("main", "all", "engine", "cvt") and view != self.view:
+        if view in ("main", "all", "engine", "cvt", "dyno") and view != self.view:
             self.view, self._view_changed = view, True
 
     def latest_eng(self):
@@ -607,7 +608,7 @@ class CvtReader:
                 want = []
                 if pn:
                     want.append("1201")            # P / N: rpm every loop (engine start / stop)
-                if now - last_fast >= (ALERT_FAST_CVT_S if view == "cvt" else ALERT_FAST_S):
+                if now - last_fast >= (ALERT_FAST_CVT_S if view in ("cvt", "dyno") else ALERT_FAST_S):
                     want += [d for d in FAST_DIDS if d not in want]
                     last_fast = now
                 if now - last_temp >= ALERT_TEMP_S:
@@ -627,7 +628,7 @@ class CvtReader:
             # ---- TCM: every loop on main / CVT tab, every 2nd round on ALL, once a second on ENGINE ----
             if (view == "engine" and now - last_cvt >= CVT_SLOW_S) or \
                (view == "all" and self._eng_round % ALL_CVT_EVERY == 0) or \
-               (view in ("main", "cvt") and (not pn or self._pn_loop % PN_CVT_EVERY == 1)):
+               (view in ("main", "cvt", "dyno") and (not pn or self._pn_loop % PN_CVT_EVERY == 1)):
                 last_cvt = now
                 rpm = self._eng.get("rpm") if now - self._eng_ts < RPM_FRESH_S else None   # from the ECM reads
                 self._header(ser, TCM_HEADER)
@@ -654,10 +655,11 @@ class CvtReader:
                     n += 1
 
             # ---- power (torque / ratio / pulleys): telemetry pages only; ALL / ENGINE every 2nd round, CVT tab every 4th ----
-            if view == "cvt":
+            if view in ("cvt", "dyno"):
                 self._tcm_loops += 1
             power_due = (view in ("all", "engine") and self._eng_round % 2 == 0) or \
-                        (view == "cvt" and self._tcm_loops % CVT_TAB_POWER_EVERY == 0)
+                        (view == "cvt" and self._tcm_loops % CVT_TAB_POWER_EVERY == 0) or \
+                        (view == "dyno" and self._tcm_loops % DYNO_POWER_EVERY == 0)
             if power_due:
                 self._header(ser, TCM_HEADER)
                 praw = parse_multi(isotp_payload(self._send(ser, REQUEST_POWER, 1.0)), POWER_PIDS)
