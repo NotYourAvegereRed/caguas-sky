@@ -10,7 +10,9 @@ for i in $(seq 1 40); do
   [ -n "$OUT" ] && break; sleep 0.5
 done
 echo "output: $OUT"
-wlr-randr --output "$OUT" --custom-mode 1024x600@60
+# EDID already prefers 1024x600@59.82; forcing a custom 60.00 Hz re-syncs the Santek (black 10-15 s).
+# Only switch if the native mode did not come up (no EDID read).
+wlr-randr | grep -q "1024x600 px.*current" || wlr-randr --output "$OUT" --mode 1024x600
 
 # 2) esperar el server del dashboard (max 60s)
 URL=http://localhost:8080/index.html
