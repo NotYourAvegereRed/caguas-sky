@@ -1,0 +1,46 @@
+/* Audio / CamillaDSP page (swipe right from the main screen). Shares the telemetry theme (#page-dsp gets the
+   same variables in telemetry.css) and its t-head / t-brand / t-status / t-dot classes. Prefix d-. 1024x600. */
+.d-stage { position: absolute; left: 50%; top: 50%; width: 1024px; height: 600px; margin: -300px 0 0 -512px; }
+#page-dsp h3 { font: 700 italic 15px/1 TBarlow; letter-spacing: 2px; color: var(--dim); margin: 0 0 12px; display: flex; justify-content: space-between; }
+.d-status { gap: 18px; }
+.d-codec { color: #0b0c0e; background: var(--monarch); padding: 4px 8px; font-weight: 600; }
+
+/* ---- meters ---- */
+.d-meters { position: absolute; left: 12px; top: 62px; width: 610px; height: 526px; padding: 16px 18px 14px 46px;
+  background: linear-gradient(180deg,var(--panel2),var(--panel)); border: 1px solid var(--line); box-sizing: border-box; }
+#d-clip { font: 600 12px/1 TMono; letter-spacing: 0; color: var(--faint); } #d-clip.bad { color: var(--crit); }
+.d-scale { position: absolute; left: 10px; top: 76px; bottom: 54px; width: 30px; }
+.d-scale span { position: absolute; right: 0; transform: translateY(50%); font: 500 11px/1 TMono; color: var(--faint); }
+.d-bars { position: absolute; left: 46px; right: 18px; top: 52px; bottom: 14px; display: flex; gap: 10px; }
+.d-gap { width: 14px; flex: none; }
+.d-ch { flex: 1; display: flex; flex-direction: column; align-items: stretch; }
+.d-led { height: 10px; margin-bottom: 14px; background: #2a1013; border: 1px solid var(--line2); }
+.d-led.on { background: var(--crit); box-shadow: 0 0 10px var(--crit); }
+.d-m { position: relative; flex: 1; overflow: hidden; border: 1px solid var(--line2);
+  background: linear-gradient(to top, var(--ok) 0%, var(--ok) 70%, var(--warn) 85%, var(--crit) 96%); }
+.d-cover { position: absolute; inset: 0; background: #0c0e11; transform-origin: top; transform: scaleY(1); }   /* hides the gradient above the level */
+.d-pk { position: absolute; left: 0; right: 0; height: 3px; bottom: 0; background: var(--ink); transform: translateY(50%); }
+.d-lbl { margin-top: 8px; text-align: center; font: 700 italic 15px/1 TBarlow; letter-spacing: 1px; }
+.d-lbl small { display: block; font: 500 11px/1.4 TMono; color: var(--dim); font-style: normal; min-height: 15px; }
+
+/* ---- side: presets + sub ---- */
+.d-side { position: absolute; left: 634px; top: 62px; width: 378px; height: 526px; padding: 16px 18px;
+  background: linear-gradient(180deg,var(--panel2),var(--panel)); border: 1px solid var(--line); box-sizing: border-box;
+  display: flex; flex-direction: column; }
+.d-presets { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+.d-preset { height: 62px; font: 700 italic 24px/1 TBarlow; letter-spacing: 1px; color: var(--ink); text-align: left; padding: 0 20px;
+  background: var(--panel); border: 1px solid var(--line2); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.d-preset.on { background: var(--monarch); border-color: var(--monarch); color: #0b0c0e; }
+.d-preset.pending { border-color: var(--monarch); }
+.d-preset:active { background: var(--line2); }
+.d-sub { display: flex; align-items: center; gap: 14px; }
+.d-btn { width: 84px; height: 84px; flex: none; font: 700 44px/1 TBarlow; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line2); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.d-btn:active { background: var(--monarch); color: #0b0c0e; }
+.d-subv { flex: 1; text-align: center; }
+.d-subv b { font: 700 italic 52px/1 TBarlow; font-variant-numeric: tabular-nums; }
+.d-subv u { text-decoration: none; font: 600 15px/1 TBarlow; color: var(--dim); margin-left: 4px; }
+.d-subbar { position: relative; height: 8px; margin-top: 12px; background: var(--line); }
+.d-subbar .c { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--dim); }
+.d-subbar .f { position: absolute; top: 0; bottom: 0; background: var(--monarch); }
+.d-vol { margin-top: auto; font: 600 14px/1 TMono; color: var(--dim); }

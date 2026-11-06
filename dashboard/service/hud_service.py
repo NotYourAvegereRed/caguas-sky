@@ -101,6 +101,9 @@ ART_RETRY_S = int(os.environ.get("HUD_ART_RETRY_S", "45"))     # after a network
 ART_QUICK_S = float(os.environ.get("HUD_ART_QUICK_S", "3"))    # Spotify lagging behind the phone
 DSP_WS = os.environ.get("HUD_DSP_WS", "ws://127.0.0.1:1234")   # CamillaDSP websocket (main volume)
 VOL_MIN_DB, VOL_MAX_DB = -60.0, 0.0
+DSP_CONFIGS = os.path.expanduser(os.environ.get("HUD_DSP_CONFIGS", "~/camilladsp/configs"))   # presets = *.yml here, not test_*
+DSP_DEFAULT = "rogue_xover.yml"          # loaded if CamillaDSP ever starts with no config (statefile lost it, 2026-11-05)
+SUB_FADER, SUB_MIN_DB, SUB_MAX_DB = 1, -12.0, 12.0   # Aux1 = the sub_level Volume filter in every preset
 LIGHTS_FILE = os.environ.get("HUD_LIGHTS_FILE", "/dev/shm/caguas-lights")
 LUX_FILE = os.environ.get("HUD_LUX_FILE", "/dev/shm/caguas-lux")      # light_reader.py: screen level from the VEML7700
 DISPLAY_FILE = os.path.expanduser(os.environ.get("HUD_DISPLAY_FILE", "~/.config/hud/display.json"))
@@ -349,6 +352,28 @@ class ArtCache:
                 f.write(img)
         except OSError as e:
             print("art cache write failed:", e, flush=True)
+
+
+def dsp_presets():
+    """[{file, title}] for every *.yml in DSP_CONFIGS except test_*; title = the config's own title: line."""
+    out = []
+    try:
+        names = sorted((f for f in os.listdir(DSP_CONFIGS) if f.endswith(".yml") and not f.startswith("test_")),
+                       key=lambda f: (f != DSP_DEFAULT, f))       # Normal first
+    except OSError:
+        return out
+    for f in names:
+        title = None
+        try:
+            with open(os.path.join(DSP_CONFIGS, f)) as fh:
+                for line in fh:
+                    if line.startswith("title:"):
+                        title = line.split(":", 1)[1].strip().strip("'\"")
+                        break
+        except OSError:
+            continue
+        out.append({"file": f, "title": title if title and title != "null" else f[:-4]})
+    return out
 
 
 class DspVolume:
@@ -705,6 +730,8 @@ class Hud:
         self.art_tries = {}         # key -> (attempts, next_try_monotonic)
         self.cvt = CvtReader()
         self.vol = DspVolume(DSP_WS)
+        self.view = "main"            # what the page shows (the DSP page polls levels only while open)
+        self.dsp_dirty = asyncio.Event()
         self.display = Display()
         self.trip = Trip()
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -923,8 +950,29 @@ class Hud:
         await self.find_players()
 
     async def command(self, cmd, msg=None):
-        if cmd == "view":                      # {"cmd": "view", "view": "main"|"all"|"engine"|"cvt"|"dyno"}
-            self.cvt.set_view((msg or {}).get("view"))
+        if cmd == "view":                      # {"cmd": "view", "view": "main"|"all"|"engine"|"cvt"|"dyno"|"dsp"}
+            self.view = (msg or {}).get("view")
+            self.cvt.set_view("main" if self.view == "dsp" else self.view)    # DSP page: OBD reads like the main screen
+            self.dsp_dirty.set()
+            return
+        if cmd == "dsp_preset":                # {"cmd": "dsp_preset", "file": "night.yml"}: only files that are presets
+            f = os.path.basename(str((msg or {}).get("file", "")))
+            if any(p["file"] == f for p in dsp_presets()):
+                await self.vol._cmd("SetConfigFilePath", os.path.join(DSP_CONFIGS, f))
+                await self.vol._cmd("Reload")
+                print(f"DSP preset: {f}", flush=True)
+            self.dsp_dirty.set()
+            return
+        if cmd == "dsp_sub":                   # {"cmd": "dsp_sub", "step": 1 | -1}: sub level in 1 dB steps
+            try:
+                step = max(-1.0, min(1.0, float((msg or {}).get("step", 0))))
+            except (TypeError, ValueError):
+                return
+            cur = await self.vol._cmd("GetFaderVolume", SUB_FADER)
+            if cur:
+                db = round(max(SUB_MIN_DB, min(SUB_MAX_DB, float(cur[1]) + step)), 1)
+                await self.vol._cmd("SetFaderVolume", [SUB_FADER, db])
+            self.dsp_dirty.set()
             return
         if cmd == "vol":                       # {"cmd": "vol", "db": -23.5} from the touch slider
             await self.vol.set_db((msg or {}).get("db"))
@@ -976,6 +1024,49 @@ class Hud:
                 msg = self.snapshot()
                 await asyncio.gather(*(self._send(c, msg) for c in list(self.clients)))
             await asyncio.sleep(0.15)   # coalesce bursts of signals
+
+    async def dsp_status(self):
+        v = self.vol
+        state = await v._cmd("GetState")
+        if state is None:
+            return {"state": None}
+        path = await v._cmd("GetConfigFilePath")
+        if not path:                                   # started with no config: load the default (statefile keeps it)
+            path = os.path.join(DSP_CONFIGS, DSP_DEFAULT)
+            await v._cmd("SetConfigFilePath", path)
+            await v._cmd("Reload")
+            print(f"CamillaDSP had no config: loaded {DSP_DEFAULT}", flush=True)
+            state = await v._cmd("GetState")
+        sub = await v._cmd("GetFaderVolume", SUB_FADER)
+        load = await v._cmd("GetProcessingLoad")
+        return {"state": state, "config": os.path.basename(path), "presets": dsp_presets(),
+                "rate": await v._cmd("GetCaptureRate"), "load": round(load, 1) if load is not None else None,
+                "clipped": await v._cmd("GetClippedSamples"), "sub_db": sub[1] if sub else None,
+                "sub_min": SUB_MIN_DB, "sub_max": SUB_MAX_DB, "codec": self.codec, "vol": v.state()}
+
+    async def dsp_loop(self):
+        r1 = lambda xs: [round(x, 1) for x in xs or []]
+        last_status = -1e9
+        while True:
+            is_open = self.view == "dsp" and self.clients
+            try:
+                await asyncio.wait_for(self.dsp_dirty.wait(), timeout=0.1 if is_open else 1.0)
+            except asyncio.TimeoutError:
+                pass
+            now = time.monotonic()
+            if self.dsp_dirty.is_set() or now - last_status >= (1.0 if is_open else 10.0):
+                self.dsp_dirty.clear()
+                last_status = now
+                st = await self.dsp_status()
+                if is_open:
+                    msg = json.dumps({"dsp": st})
+                    await asyncio.gather(*(self._send(c, msg) for c in list(self.clients)))
+            if is_open:
+                lv = await self.vol._cmd("GetSignalLevels")
+                if lv:
+                    msg = json.dumps({"dsp_lv": {"in": r1(lv.get("capture_rms")), "in_pk": r1(lv.get("capture_peak")),
+                                                 "out": r1(lv.get("playback_rms")), "out_pk": r1(lv.get("playback_peak"))}})
+                    await asyncio.gather(*(self._send(c, msg) for c in list(self.clients)))
 
     async def cvt_loop(self):
         """Push CVT data as it arrives (~12/s), or one null when it goes away."""
@@ -1085,7 +1176,7 @@ async def main():
     await asyncio.get_running_loop().create_datagram_endpoint(SwcProto, local_addr=SWC_ADDR)
     async with serve(hud.ws_handler, BIND, PORT):
         print(f"HUD service on ws://{BIND}:{PORT}", flush=True)
-        await asyncio.gather(hud.poll_loop(), hud.broadcast_loop(), hud.cvt_loop(), hud.vol_loop(), hud.eng_loop(), hud.display_loop(),
+        await asyncio.gather(hud.poll_loop(), hud.broadcast_loop(), hud.cvt_loop(), hud.vol_loop(), hud.eng_loop(), hud.display_loop(), hud.dsp_loop(),
                              asyncio.Future())
 
 

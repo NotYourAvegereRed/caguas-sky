@@ -200,6 +200,12 @@ filters:
       order: 4
       type: LinkwitzRileyHighpass
     type: BiquadCombo
+  sub_level:
+    type: Volume
+    description: Sub level from the dashboard (fader Aux1)
+    parameters:
+      fader: Aux1
+      ramp_time: 150
 mixers:
   stereo_to_8ch:
     channels:
@@ -394,5 +400,13 @@ pipeline:
   - gain_ch7
   - delay_ch7
   type: Filter
+- type: Filter
+  channels:
+  - 6
+  - 7
+  names:
+  - sub_level
+  description: sub level (dashboard)
+  bypassed: null
 processors: {}
-title: null
+title: Normal

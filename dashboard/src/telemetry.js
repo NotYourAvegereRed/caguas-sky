@@ -26,6 +26,9 @@ let introPending = true, cvtNullSince = performance.now();
 // ---------------------------------------------------------------- DOM
 const pageMain = document.getElementById("page-main");
 const page = document.getElementById("page-tele");
+const pageDsp = document.getElementById("page-dsp");              // audio / DSP page (dsp.js), left of main
+const PAGES = [pageMain, page, pageDsp].filter(Boolean);
+const pgX = (v) => v === "tele" ? -W() : v === "dsp" ? W() : 0;
 page.innerHTML = `
 <div class="t-stage">
   <div class="t-head">
@@ -313,19 +316,20 @@ function setTab(t) {
   }, 170);
 }
 $("t-tabs").addEventListener("click", (e) => { const t = e.target.closest(".t-tab"); if (t) setTab(t.dataset.t); });
-const sendView = () => window.hud?.send?.({ cmd: "view", view: view === "tele" ? tab : "main" });
+const sendView = () => window.hud?.send?.({ cmd: "view", view: view === "tele" ? tab : view });
 
 // ---------------------------------------------------------------- pages + swipe
-let offset = 0;                                      // px, 0 = main, -W = telemetry
+let offset = 0;                                      // px, 0 = main, -W = telemetry, +W = DSP
 const setPg = (px) => { offset = px; document.body.style.setProperty("--pg", `${px}px`); };
 let hideT = 0;
 function go(v) {
   const was = view; view = v;
   document.body.dataset.view = v;
   clearTimeout(hideT);
-  pageMain.classList.remove("pg-off"); page.classList.remove("pg-off");
-  setPg(v === "tele" ? -W() : 0);
-  hideT = setTimeout(() => (v === "tele" ? pageMain : page).classList.add("pg-off"), 480);
+  PAGES.forEach((p) => p.classList.remove("pg-off"));
+  setPg(pgX(v));
+  const shown = v === "tele" ? page : v === "dsp" ? pageDsp : pageMain;
+  hideT = setTimeout(() => PAGES.forEach((p) => p !== shown && p.classList.add("pg-off")), 480);
   if (v === "tele" && was !== "tele") {
     update();
     if (introPending) {
@@ -340,7 +344,7 @@ function go(v) {
   }
   if (v !== was) sendView();
 }
-window.addEventListener("resize", () => { document.body.classList.add("pg-drag"); setPg(view === "tele" ? -W() : 0); requestAnimationFrame(() => document.body.classList.remove("pg-drag")); });
+window.addEventListener("resize", () => { document.body.classList.add("pg-drag"); setPg(pgX(view)); requestAnimationFrame(() => document.body.classList.remove("pg-drag")); });
 
 let g = null, suppressClick = false;
 document.addEventListener("pointerdown", (e) => {
@@ -355,12 +359,13 @@ document.addEventListener("pointermove", (e) => {
     g.drag = true; g.x0 = e.clientX;
     window.dispatchEvent(new Event("hud-hidevol"));    // volume open? hide it fast, the swipe wins
     document.body.classList.add("pg-drag");
-    pageMain.classList.remove("pg-off"); page.classList.remove("pg-off"); clearTimeout(hideT);
+    PAGES.forEach((p) => p.classList.remove("pg-off")); clearTimeout(hideT);
     update();
   }
   if (g.drag) {
     let p = g.base + (e.clientX - g.x0);
-    if (p > 0) p *= .25; if (p < -W()) p = -W() + (p + W()) * .25;   // rubber band at the ends
+    const lo = view === "dsp" ? 0 : -W(), hi = view === "tele" ? 0 : pageDsp ? W() : 0;   // one page per swipe
+    if (p > hi) p = hi + (p - hi) * .25; if (p < lo) p = lo + (p - lo) * .25;           // rubber band at the ends
     setPg(p);
   }
 }, true);
@@ -370,8 +375,10 @@ function endGesture(e) {
   if (g.drag) {
     document.body.classList.remove("pg-drag");
     const v = dx / dt, far = Math.abs(dx) > W() * .22, fast = Math.abs(v) > .45;
-    if (view === "main" && dx < 0 && (far || fast)) go("tele");
-    else if (view === "tele" && dx > 0 && (far || fast)) go("main");
+    const swipe = far || fast;
+    if (view === "main" && dx < 0 && swipe) go("tele");
+    else if (view === "main" && dx > 0 && swipe && pageDsp) go("dsp");
+    else if ((view === "tele" && dx > 0 || view === "dsp" && dx < 0) && swipe) go("main");
     else go(view);                                   // snap back
     suppressClick = true; setTimeout(() => (suppressClick = false), 80);
   } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
@@ -430,6 +437,7 @@ if (DEMO) {
 
 render();
 document.body.dataset.view = "main";
-pageMain.classList.remove("pg-off"); page.classList.add("pg-off");
+pageMain.classList.remove("pg-off"); page.classList.add("pg-off"); pageDsp?.classList.add("pg-off");
 if (Q.get("page") === "tele") { introPending = Q.get("intro") === "1"; go("tele"); }
+if (Q.get("page") === "dsp") go("dsp");
 window.tele = { go, setTab, setAlerts };

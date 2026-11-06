@@ -16,6 +16,7 @@ html, body { touch-action: none; overscroll-behavior: none; }
 body.pg-drag .pg { transition: none; }
 #page-main { transform: translateX(var(--pg, 0px)); }
 #page-tele { transform: translateX(calc(var(--pg, 0px) + 100vw)); }
+#page-dsp { transform: translateX(calc(var(--pg, 0px) - 100vw)); }
 .pg.pg-off { visibility: hidden; }          /* off-screen page: not painted at all */
 
 /* ---------------- warning badge on the main screen (inside the CVT panel) ---------------- */
@@ -34,8 +35,8 @@ body.pg-drag .pg { transition: none; }
 #panel-cvt .panel__head { transition: padding-right .3s cubic-bezier(.2,.8,.2,1); }
 #panel-cvt.t-warn .panel__head { padding-right: 44px; }   /* NO OBD / DEMO tag moves left of the badge */
 
-/* ---------------- telemetry page ---------------- */
-#page-tele {
+/* ---------------- telemetry page (and the DSP page, same theme) ---------------- */
+#page-tele, #page-dsp {
   --bg:#08090b; --panel:#101216; --panel2:#15181d; --line:#22262d; --line2:#2d323a;
   --ink:#eef0f3; --dim:#8a919c; --faint:#4a505a; --monarch:#ff6a13;
   --ok:#3ddc84; --warn:#ffc21a; --crit:#ff2d3d; --cool:#38b6ff; --ease:cubic-bezier(.2,.8,.2,1);
