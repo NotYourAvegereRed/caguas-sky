@@ -129,6 +129,9 @@ body.pg-drag .pg { transition: none; }
   display: flex; flex-direction: column;     /* label + value on top, sub line + bar pinned to the bottom: bars line up across a row */
   clip-path: polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%); }
 .t-tile .t-val { font-size: 72px; margin-top: 14px; } .t-tile .t-val u { font-size: 18px; }
+/* Dyno: last run peaks, 2 x 2 inside one tile */
+.t-peaks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; margin-top: 14px; }
+.t-tile .t-peaks .t-val { font-size: 40px; margin-top: 4px; } .t-tile .t-peaks .t-val u { font-size: 14px; }
 .t-tile .t-sub { font: 500 13px/1 TMono; color: var(--dim); margin-top: auto; }
 .t-tile .t-bar { height: 10px; margin-top: 16px; }
 

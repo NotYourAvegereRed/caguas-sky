@@ -125,9 +125,10 @@ const VIEWS = {
     ${tile("wear2", 4)}${tile("ratio", 5)}</div>`,
   dyno: () => `<div class="t-tiles">${tile("dyno", 0, `<div class="t-val"><b id="dy-time">--</b><u>s</u></div>
     <div class="t-sub" id="dy-sub">--</div><div class="t-sub" id="dy-best" style="margin-top:8px"></div>`)}
-    ${tile("hp", 1)}${tile("engnm", 2)}${tile("sec", 3)}${tile("lock", 4, LOCK_TILE)}${tile("whp", 5)}</div>`
+    ${tile("hp", 1)}${tile("engnm", 2)}${tile("sec", 3)}${tile("lock", 4, LOCK_TILE)}${tile("peak", 5, `<div class="t-peaks"><div><div class="t-lbl">Power</div><div class="t-val"><b id="pk-hp">--</b><u>hp</u></div></div><div><div class="t-lbl">Torque</div><div class="t-val"><b id="pk-nm">--</b><u>Nm</u></div></div><div><div class="t-lbl">SEC actual</div><div class="t-val"><b id="pk-sec">--</b><u>MPa</u></div></div><div><div class="t-lbl">PRI actual</div><div class="t-val"><b id="pk-pri">--</b><u>MPa</u></div></div></div><div class="t-sub" id="pk-sub">no run yet</div>`)}</div>`
 };
 F.dyno = { l: "0-60 mph" };
+F.peak = { l: "Last run · peaks" };
 F.lock = { l: "Torque converter" };
 
 // ---------------------------------------------------------------- render / update
@@ -228,11 +229,18 @@ function dynoStep(s, now, kmh, tempC) {
   if (s.st === "ready") return { ...s, st: "run", t0: now };              // first sample moving: clock starts
   return s.st === "done" ? s : { ...s, st: "wait" };
 }
-let DY = { st: "wait", t0: 0, last: null }, dyBest = null;
+let DY = { st: "wait", t0: 0, last: null }, dyBest = null, PK = null;
 try { dyBest = Number(localStorage.getItem("dyno-best")) || null; } catch {}
 function dynoTick() {
   const prev = DY.st;
+  if (view !== "tele" || tab !== "dyno") { if (prev !== "wait") DY = { ...DY, st: "wait" }; return; }   // only records on the Dyno tab
   DY = dynoStep(DY, performance.now(), C?.speed_kmh, C?.temp_c);
+  if (DY.st === "run" && prev !== "run") PK = { hp: null, rpm: null, nm: null, sec: null, pri: null };
+  if (PK && (DY.st === "run" || prev === "run")) {
+    const hp = PW("hp"), max = (k, v) => { if (v != null && (PK[k] == null || v > PK[k])) PK[k] = v; };
+    if (hp != null && (PK.hp == null || hp > PK.hp)) { PK.hp = hp; PK.rpm = E?.rpm ?? C?.rpm ?? null; }
+    max("nm", PW("eng_nm")); max("sec", C?.p_secondary_actual_mpa); max("pri", C?.p_primary_actual_mpa);
+  }
   if (prev === "run" && DY.st === "done" && (dyBest == null || DY.last < dyBest)) {
     dyBest = DY.last; try { localStorage.setItem("dyno-best", String(dyBest)); } catch {}
   }
@@ -251,6 +259,9 @@ function drawDyno() {
   $("dy-sub").textContent = msg;
   $("dy-best").textContent = `best ${dyBest == null ? "--" : dyBest.toFixed(2)} s`;
   t.closest(".t-tile").classList.toggle("st-crit", DY.st === "locked");
+  $("pk-hp").textContent = fx(PK?.hp); $("pk-nm").textContent = fx(PK?.nm);
+  $("pk-sec").textContent = fx(PK?.sec, 2); $("pk-pri").textContent = fx(PK?.pri, 2);
+  $("pk-sub").textContent = !PK ? "no run yet" : `peak power @ ${PK.rpm == null ? "--" : Math.round(PK.rpm).toLocaleString("en-US")} rpm${DY.st === "run" ? " · live" : ""}`;
 }
 
 // ---------------------------------------------------------------- alerts (banner here, badge on the main screen)
