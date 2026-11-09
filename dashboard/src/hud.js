@@ -48,7 +48,7 @@ const CONFIG = {
   gauges: [
     { key: "p_primary_actual_mpa",   tgt: "p_primary_target_mpa",   peak: "gold", label: "Primary",    sub: "pressure · actual vs target", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
     { key: "p_secondary_actual_mpa", tgt: "p_secondary_target_mpa", peak: "gold", label: "Secondary",  sub: "pressure · actual vs target", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
-    { key: "temp_c", fps: 1,   /* moves slowly: redraw once a second */ peak: "dim",  label: "Fluid temp", sub: "CVT",                         unit: "°C",  min: 20, max: 130, dec: 0, stops: TEMP_STOPS }
+    { key: "temp_c",                                                peak: "dim",  label: "Fluid temp", sub: "CVT",                         unit: "°C",  min: 20, max: 130, dec: 0, stops: TEMP_STOPS }
   ]
 };
 
@@ -334,11 +334,10 @@ function tick(now) {
       if (ampS.shown != null) drawAmps(ampS.shown);
     }
   }
-  // adaptive: each gauge picks its own draw rate from how fast its needle is moving (ADAPT_FPS), capped by
-  // ?fps= and by the gauge's own cfg.fps (fluid temp: 1)
+  // adaptive: each gauge picks its own draw rate from how fast its needle is moving (ADAPT_FPS), capped by ?fps=
   for (const o of Object.values(gaugeEls)) {
     if (o.target != null && o.shown != null) stepTo(o, now);
-    if (!due(o, o.cfg.max - o.cfg.min, Math.min(DRAW_FPS, o.cfg.fps ?? DRAW_FPS), now)) continue;
+    if (!due(o, o.cfg.max - o.cfg.min, DRAW_FPS, now)) continue;
     if (o.shown != null && o.shown !== o.drawnAt) { drawGauge(o, o.shown); o.drawnAt = o.shown; }
     drawMarks(o, now);
   }
