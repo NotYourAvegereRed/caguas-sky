@@ -31,23 +31,34 @@
 }
 .tag--demo { color: #ffd479; border-color: rgba(255,212,121,.5); }
 
-/* ---- CVT: 2 columns x 3 rows. Rows pair target vs actual. ---- */
-.cvt { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 2px 8px; }
+/* ---- CVT: 2 x 2 (primary, secondary / fluid temp, torque converter). Target lives on the actual gauge. ---- */
+.cvt { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px 8px; }
 .cell { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 0; contain: layout paint; }
 .gauge__dial { will-change: transform; }   /* each dial on its own GPU layer: a moving needle repaints only its own dial */
-.gauge__dial { position: relative; width: 118px; height: calc(118px * var(--px-aspect)); }
-.gauge__dial svg { width: 100%; height: 100%; display: block; }
-.gauge__track, .gauge__value { fill: none; stroke-width: 9; stroke-linecap: round; }
+.gauge__dial { position: relative; width: 176px; height: calc(176px * var(--px-aspect)); }
+.gauge__dial svg { width: 100%; height: 100%; display: block; overflow: visible; }   /* target notch sits just outside the ring */
+.gauge__track, .gauge__value, .gauge__gap { fill: none; stroke-width: 9; stroke-linecap: round; }
 .gauge__track { stroke: rgba(255,255,255,.16); }
 .gauge__value { stroke: var(--lvl, #7ce3c4); transition: opacity .2s; }   /* the needle easing is done in JS: a CSS transition on top doubled the GPU work */
+.gauge__gap { stroke: var(--lvl, #7ce3c4); stroke-linecap: butt; }        /* actual-to-target band; opacity .35 set in JS */
+.gauge__tgt line { stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+.gauge__tgt polygon { fill: #fff; }
+/* peak: gold = soft wide line under a thin core (no SVG filter, cheap on the Pi); dim = thin white tick only */
+.gauge__peak line { stroke-linecap: round; }
+.gauge__peak--gold .pk-glow { stroke: #ffd27a; stroke-width: 6; opacity: .35; }
+.gauge__peak--gold .pk-core { stroke: #ffe3a8; stroke-width: 2.2; }
+.gauge__peak--dim .pk-glow { display: none; }
+.gauge__peak--dim .pk-core { stroke: rgba(255,255,255,.45); stroke-width: 1.5; }
 .gauge__num {
   position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; padding-top: 2px;
+  align-items: center; justify-content: center; padding-top: 6px;
 }
-.gauge__num b { font-size: 32px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
-.gauge__num i { font-style: normal; font-size: 12px; color: rgba(242,244,255,.64); margin-top: 3px; }
-.cell__label { margin-top: 0; text-align: center; font-size: 14px; line-height: 1.2; color: rgba(242,244,255,.9); }
-.cell__label small { display: block; color: rgba(242,244,255,.56); font-size: 11px; letter-spacing: .03em; }
+.gauge__num b { font-size: 44px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
+.gauge__num i { font-style: normal; font-size: 13px; color: rgba(242,244,255,.64); margin-top: 3px; }
+.gauge__sub { font-size: 13px; margin-top: 8px; height: 16px; color: rgba(242,244,255,.85); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cell:has(.gauge__peak--dim) .gauge__sub { color: rgba(255,255,255,.4); }   /* fluid temp "P = 106" is dim */
+.cell__label { margin-top: 2px; text-align: center; font-size: 17px; font-weight: 600; line-height: 1.2; color: rgba(242,244,255,.92); }
+.cell__label small { display: block; color: rgba(242,244,255,.56); font-size: 12px; font-weight: 400; letter-spacing: .03em; }
 
 /* torque converter tile: same dial as the gauges, arc = TCC current, colored by state */
 .lock__arc { stroke: var(--lc, #8f95ab); }
@@ -57,7 +68,8 @@
   padding: 2px 8px; border-radius: 999px; color: #0b0e1c; background: var(--lc, #aab0c8);
   margin-bottom: 2px; transition: background .3s;
 }
-.lock__in b { font-size: 26px; }
+.lock__in b { font-size: 40px; }
+.lock__chip { font-size: 12px; }
 .lock__in i { margin-top: 0; }
 .lock__coast {
   font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--lc);

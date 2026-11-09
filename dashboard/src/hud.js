@@ -1,4 +1,4 @@
-// HUD: CVT (left, 6 tiles) + now playing with album art (right). Panels cover the screen.
+// HUD: CVT (2x2: primary, secondary, fluid temp, torque converter) + now playing with album art (right). Panels cover the screen.
 // Data contract (JSON, same shape for demo and live):
 //   { cvt:   { p_primary_target_mpa, p_primary_actual_mpa,
 //              p_secondary_target_mpa, p_secondary_actual_mpa,
@@ -44,16 +44,30 @@ const CONFIG = {
   // Live by default (CVT + media from hud-service). ?demo=1: fake data, only to judge the layout.
   demo: new URLSearchParams(location.search).get("demo") === "1",
   ws: `ws://${location.hostname}:8766`,
+  // key = big number + arc; tgt = the TCM's target (white notch + gap band); peak = "gold" | "dim" | none
   gauges: [
-    { key: "p_primary_target_mpa",   label: "PRI target", sub: "primary pressure",   unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
-    { key: "p_primary_actual_mpa",   label: "PRI actual", sub: "primary pressure",   unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
-    { key: "p_secondary_target_mpa", label: "SEC target", sub: "secondary pressure", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
-    { key: "p_secondary_actual_mpa", label: "SEC actual", sub: "secondary pressure", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
-    { key: "temp_c",                 label: "Fluid temp", sub: "CVT",              unit: "°C",  min: 20, max: 130, dec: 0, stops: TEMP_STOPS }
+    { key: "p_primary_actual_mpa",   tgt: "p_primary_target_mpa",   peak: "gold", label: "Primary",    sub: "pressure · actual vs target", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
+    { key: "p_secondary_actual_mpa", tgt: "p_secondary_target_mpa", peak: "gold", label: "Secondary",  sub: "pressure · actual vs target", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
+    { key: "temp_c",                                                peak: "dim",  label: "Fluid temp", sub: "CVT",                         unit: "°C",  min: 20, max: 130, dec: 0, stops: TEMP_STOPS }
   ]
 };
 
 const SMOOTH_TAU = 0.09;   // s; bigger = smoother but slower needles, 0 = no smoothing
+const PEAK_MIN_MPA = 2.25;   // gold peak line only when the held pressure peak is above this
+const PEAK_HOLD_MS = 5500;   // peak holds this long, then fades
+const PEAK_FADE_MS = 600;    // fade time, then it resets to the live value
+
+// Peak hold: jumps to any new max at once, holds PEAK_HOLD_MS, fades over PEAK_FADE_MS, then restarts from the live value.
+// update() returns { v, a } (a = opacity 0..1) or null when there is no value.
+class PeakHold {
+  v = null; t = 0;
+  update(x, now) {
+    if (x == null) return (this.v = null);
+    if (this.v == null || x >= this.v || now - this.t > PEAK_HOLD_MS + PEAK_FADE_MS) { this.v = x; this.t = now; }
+    const age = now - this.t;
+    return { v: this.v, a: age <= PEAK_HOLD_MS ? 1 : 1 - (age - PEAK_HOLD_MS) / PEAK_FADE_MS };
+  }
+}
 
 const hex2rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 function colorAt(stops, v) {
@@ -149,17 +163,51 @@ const gaugeEls = {};
 for (const g of CONFIG.gauges) {
   const el = document.createElement("div");
   el.className = "cell";
+  // marks (target, peak) are drawn at angle 0 and turned into place with rotate(); x 104..116 = r 44..56 from the center, across the track
   el.innerHTML = `
     <div class="gauge__dial">
       <svg viewBox="0 0 120 120" preserveAspectRatio="none" aria-hidden="true">
         <circle class="gauge__track" cx="60" cy="60" r="50" pathLength="100" stroke-dasharray="75 100" transform="rotate(135 60 60)"/>
+        ${g.tgt ? '<circle class="gauge__gap" cx="60" cy="60" r="50" pathLength="100" stroke-dasharray="0 100" transform="rotate(135 60 60)"/>' : ""}
         <circle class="gauge__value" cx="60" cy="60" r="50" pathLength="100" stroke-dasharray="0 100" transform="rotate(135 60 60)"/>
+        ${g.peak ? `<g class="gauge__peak gauge__peak--${g.peak}" opacity="0"><line class="pk-glow" x1="104" y1="60" x2="116" y2="60"/><line class="pk-core" x1="104" y1="60" x2="116" y2="60"/></g>` : ""}
+        ${g.tgt ? '<g class="gauge__tgt" opacity="0"><line x1="105" y1="60" x2="115" y2="60"/><polygon points="117.5,60 123.5,56.5 123.5,63.5"/></g>' : ""}
       </svg>
-      <div class="gauge__num"><b>--</b><i>${g.unit}</i></div>
+      <div class="gauge__num"><b>--</b><i>${g.unit}</i><small class="gauge__sub"></small></div>
     </div>
     <div class="cell__label">${g.label}<small>${g.sub}</small></div>`;
   cvtHost.appendChild(el);
-  gaugeEls[g.key] = { el, arc: el.querySelector(".gauge__value"), num: el.querySelector("b"), cfg: g };
+  gaugeEls[g.key] = { el, arc: el.querySelector(".gauge__value"), num: el.querySelector("b"), cfg: g,
+    gap: el.querySelector(".gauge__gap"), tgtEl: el.querySelector(".gauge__tgt"), pkEl: el.querySelector(".gauge__peak"),
+    subEl: el.querySelector(".gauge__sub"), tgt: null, peak: g.peak ? new PeakHold() : null, raw: null };
+}
+const angleOf = (cfg, v) => 135 + 270 * Math.max(0, Math.min(1, (v - cfg.min) / (cfg.max - cfg.min)));
+const fmtD = (x, dec) => (x < 0 ? "−" : "+") + Math.abs(x).toFixed(dec);   // real minus sign, like the mockup
+// target notch + gap band + peak line + the small line under the number. Hidden during the wake / welcome sweeps.
+// Only writes to the DOM when something visible changed (same rule as drawGauge).
+function drawMarks(o, now) {
+  const { cfg } = o, set = (k, el, attr, val) => { if (o[k] !== val) { el.setAttribute(attr, val); o[k] = val; } };
+  const anim = WAKE.k < 1 || SWEEP.on || o.shown == null;
+  if (o.tgtEl) {
+    const ok = !anim && o.tgt != null;
+    set("_tO", o.tgtEl, "opacity", ok ? "1" : "0"); set("_gO", o.gap, "opacity", ok ? ".35" : "0");
+    if (ok) {
+      const fA = 75 * (angleOf(cfg, o.shown) - 135) / 270, fT = 75 * (angleOf(cfg, o.tgt) - 135) / 270;
+      set("_tR", o.tgtEl, "transform", `rotate(${angleOf(cfg, o.tgt).toFixed(1)} 60 60)`);
+      set("_gD", o.gap, "stroke-dasharray", `${Math.abs(fA - fT).toFixed(2)} 100`);
+      set("_gF", o.gap, "stroke-dashoffset", (-Math.min(fA, fT)).toFixed(2));
+    }
+  }
+  const p = o.peak?.update(o.raw, now);
+  if (o.pkEl) {
+    const show = !anim && p && (cfg.peak === "dim" || p.v > PEAK_MIN_MPA);
+    set("_pO", o.pkEl, "opacity", show ? p.a.toFixed(2) : "0");
+    if (show) set("_pR", o.pkEl, "transform", `rotate(${angleOf(cfg, p.v).toFixed(1)} 60 60)`);
+  }
+  const sub = o.shown == null ? ""
+    : cfg.tgt ? (o.tgt == null ? "" : `T ${o.tgt.toFixed(cfg.dec)} · Δ ${fmtD(o.shown - o.tgt, cfg.dec)}`)
+    : p ? `P = ${p.v.toFixed(cfg.dec)}` : "";
+  if (sub !== o._sub) { o.subEl.textContent = sub; o._sub = sub; }
 }
 // lockup tile: arc = TCC solenoid current (0..TCC_MAX_A), colored by state; chip = state; small line = slip
 const TCC_MAX_A = 0.7;   // full arc = the max the TCM commands on this car (0.70 A in the logs)
@@ -195,6 +243,7 @@ function stepTo(o, now) {
 }
 function setGauge(key, v) {
   const o = gaugeEls[key]; if (!o) return;
+  o.raw = v == null || Number.isNaN(v) ? null : v;   // the peak follows raw samples, not the eased needle
   if (v == null || Number.isNaN(v)) { o.target = o.shown = null; o.lastT = o.dur = null; drawGauge(o, null); return; }
   if (o.shown == null || SMOOTH_TAU <= 0) { o.shown = o.target = v; o.dur = null; o.lastT = performance.now(); drawGauge(o, v); return; }
   retarget(o, v);
@@ -281,6 +330,7 @@ function tick(now) {
     stepTo(o, now);
     if (paint && o.shown !== o.drawnAt) { drawGauge(o, o.shown); o.drawnAt = o.shown; }
   }
+  if (paint) for (const o of Object.values(gaugeEls)) drawMarks(o, now);
   for (const [s, draw] of [[slipS, drawSlip], [ampS, drawAmps]]) {
     if (s.target == null || s.shown == null) continue;
     stepTo(s, now);
@@ -293,7 +343,10 @@ function setCvt(c) {
   window.dispatchEvent(new CustomEvent("hud-cvt", { detail: c ?? null }));   // telemetry page (telemetry.js)
   wakeCheck(c);
   $("cvt-hz").textContent = c?.hz ? `${Math.round(c.hz)} Hz` : "";      // CVT readings per second
-  for (const g of CONFIG.gauges) setGauge(g.key, c?.[g.key]);
+  for (const g of CONFIG.gauges) {
+    setGauge(g.key, c?.[g.key]);
+    if (g.tgt) { const t = c?.[g.tgt]; gaugeEls[g.key].tgt = t == null || Number.isNaN(t) ? null : t; }
+  }
   setLockup(c?.lockup, c?.slip_rpm, c?.tcc_a);
 }
 
