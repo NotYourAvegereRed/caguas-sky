@@ -48,7 +48,7 @@ const CONFIG = {
   gauges: [
     { key: "p_primary_actual_mpa",   tgt: "p_primary_target_mpa",   peak: "gold", label: "Primary",    sub: "pressure · actual vs target", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
     { key: "p_secondary_actual_mpa", tgt: "p_secondary_target_mpa", peak: "gold", label: "Secondary",  sub: "pressure · actual vs target", unit: "MPa", min: 0,  max: 6,   dec: 2, stops: PRESSURE_STOPS },
-    { key: "temp_c",                                                peak: "dim",  label: "Fluid temp", sub: "CVT",                         unit: "°C",  min: 20, max: 130, dec: 0, stops: TEMP_STOPS }
+    { key: "temp_c", fps: 1,   /* moves slowly: redraw once a second */ peak: "dim",  label: "Fluid temp", sub: "CVT",                         unit: "°C",  min: 20, max: 130, dec: 0, stops: TEMP_STOPS }
   ]
 };
 
@@ -296,11 +296,20 @@ function setLockup(state, slip, amps) {
     retarget(s, v);
   }
 }
-// easing loop: the values ease every frame, the needles are drawn at most ~30 times a second (data comes at
-// ~15 Hz, so it looks the same and halves the GPU work)
+// easing loop: the values ease every frame; each needle is drawn at an adaptive rate (15-60 fps by speed, see due())
 let lastFrame = performance.now(), lastDraw = 0;
 const DRAW_FPS = Number(new URLSearchParams(location.search).get("fps")) || 60;   // ?fps=45 / 60 to compare
 const DRAW_MS = 1000 / DRAW_FPS - 1;
+// [needle speed in full scales per second, draw fps]: first row whose speed is reached wins.
+// Picked so a needle never jumps more than ~1 px per draw (the 176 px dial's arc is ~415 px long).
+const ADAPT_FPS = [[0.072, 60], [0.036, 30], [0, 15]];
+function due(o, span, cap, now) {
+  const moving = o.dur != null && now - o.t0 < o.dur;
+  const speed = moving ? Math.abs(o.target - o.from) / span / (o.dur / 1000) : 0;
+  const fps = Math.min(cap, ADAPT_FPS.find(([s]) => speed >= s)[1]);
+  if (now - (o.lastDraw ?? -1e9) < 1000 / fps - 1) return false;
+  o.lastDraw = now; return true;
+}
 function tick(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
   const paint = now - lastDraw >= DRAW_MS;
@@ -325,16 +334,18 @@ function tick(now) {
       if (ampS.shown != null) drawAmps(ampS.shown);
     }
   }
+  // adaptive: each gauge picks its own draw rate from how fast its needle is moving (ADAPT_FPS), capped by
+  // ?fps= and by the gauge's own cfg.fps (fluid temp: 1)
   for (const o of Object.values(gaugeEls)) {
-    if (o.target == null || o.shown == null) continue;
-    stepTo(o, now);
-    if (paint && o.shown !== o.drawnAt) { drawGauge(o, o.shown); o.drawnAt = o.shown; }
+    if (o.target != null && o.shown != null) stepTo(o, now);
+    if (!due(o, o.cfg.max - o.cfg.min, Math.min(DRAW_FPS, o.cfg.fps ?? DRAW_FPS), now)) continue;
+    if (o.shown != null && o.shown !== o.drawnAt) { drawGauge(o, o.shown); o.drawnAt = o.shown; }
+    drawMarks(o, now);
   }
-  if (paint) for (const o of Object.values(gaugeEls)) drawMarks(o, now);
-  for (const [s, draw] of [[slipS, drawSlip], [ampS, drawAmps]]) {
+  for (const [s, draw, span] of [[slipS, drawSlip, 254], [ampS, drawAmps, TCC_MAX_A]]) {
     if (s.target == null || s.shown == null) continue;
     stepTo(s, now);
-    if (paint && s.shown !== s.drawnAt) { draw(s.shown); s.drawnAt = s.shown; }
+    if (due(s, span, DRAW_FPS, now) && s.shown !== s.drawnAt) { draw(s.shown); s.drawnAt = s.shown; }
   }
   requestAnimationFrame(tick);
 }
