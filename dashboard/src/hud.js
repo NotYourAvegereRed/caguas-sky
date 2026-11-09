@@ -57,15 +57,18 @@ const PEAK_MIN_MPA = 2.25;   // gold peak line only when the held pressure peak 
 const PEAK_HOLD_MS = 5500;   // peak holds this long, then fades
 const PEAK_FADE_MS = 600;    // fade time, then it resets to the live value
 
-// Peak hold: jumps to any new max at once, holds PEAK_HOLD_MS, fades over PEAK_FADE_MS, then restarts from the live value.
+// Peak hold: jumps to any new max at once, holds holdMs, fades over PEAK_FADE_MS, then restarts from the live value.
+// holdMs = Infinity: holds until reset() (fluid temp: the whole drive). A data dropout (null) keeps the peak.
 // update() returns { v, a } (a = opacity 0..1) or null when there is no value.
 class PeakHold {
   v = null; t = 0;
+  constructor(holdMs = PEAK_HOLD_MS) { this.holdMs = holdMs; }
+  reset() { this.v = null; }
   update(x, now) {
-    if (x == null) return (this.v = null);
-    if (this.v == null || x >= this.v || now - this.t > PEAK_HOLD_MS + PEAK_FADE_MS) { this.v = x; this.t = now; }
+    if (x == null) return null;
+    if (this.v == null || x >= this.v || now - this.t > this.holdMs + PEAK_FADE_MS) { this.v = x; this.t = now; }
     const age = now - this.t;
-    return { v: this.v, a: age <= PEAK_HOLD_MS ? 1 : 1 - (age - PEAK_HOLD_MS) / PEAK_FADE_MS };
+    return { v: this.v, a: age <= this.holdMs ? 1 : 1 - (age - this.holdMs) / PEAK_FADE_MS };
   }
 }
 
@@ -135,7 +138,10 @@ function wakeCheck(c) {
       WAKE.above = 0; WAKE.offSince ??= now;
     }
   }
-  if (!WAKE.armed && WAKE.offSince != null && now - WAKE.offSince > 60000) WAKE.armed = true;   // new trip
+  if (!WAKE.armed && WAKE.offSince != null && now - WAKE.offSince > 60000) {   // new trip
+    WAKE.armed = true;
+    gaugeEls.temp_c?.peak.reset();   // fluid temp peak is per drive
+  }
   if (WAKE.armed && c != null && !(rpm > WAKE_RPM)) root.classList.add("hud--standby");
 }
 // ---- welcome sweep (welcome.js): every gauge goes to full scale and back down to its value, like a car's
@@ -179,7 +185,7 @@ for (const g of CONFIG.gauges) {
   cvtHost.appendChild(el);
   gaugeEls[g.key] = { el, arc: el.querySelector(".gauge__value"), num: el.querySelector("b"), cfg: g,
     gap: el.querySelector(".gauge__gap"), tgtEl: el.querySelector(".gauge__tgt"), pkEl: el.querySelector(".gauge__peak"),
-    subEl: el.querySelector(".gauge__sub"), tgt: null, peak: g.peak ? new PeakHold() : null, raw: null };
+    subEl: el.querySelector(".gauge__sub"), tgt: null, peak: g.peak ? new PeakHold(g.peak === "dim" ? Infinity : PEAK_HOLD_MS) : null, raw: null };
 }
 const angleOf = (cfg, v) => 135 + 270 * Math.max(0, Math.min(1, (v - cfg.min) / (cfg.max - cfg.min)));
 const fmtD = (x, dec) => (x < 0 ? "−" : "+") + Math.abs(x).toFixed(dec);   // real minus sign, like the mockup
