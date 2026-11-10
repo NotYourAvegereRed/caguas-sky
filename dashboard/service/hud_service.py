@@ -32,7 +32,7 @@ Telemetry window (swipe left on the main screen):
                      quiet = in DTC_QUIET (common, harmless: no yellow badge). History in ~/.local/share/hud/dtcs.json
                      (HUD_DTC_FILE): first / last time seen and in how many scans.
     page -> server: {"cmd": "dtc_clear"}   hold-to-clear button on the CODES tab (only taken while that tab is open);
-                    cvt_reader clears only with the engine off and the car stopped, then scans again
+                    cvt_reader clears only with the car in P and stopped, then scans again
     server -> page: {"dtc_clear": "CODES CLEARED" | "NOT CLEARED · ..." | "STILL STORED · ..." | "NO CODES TO CLEAR"}
     On the main screen only eop_mv/rpm (1 s) and coolant/oil temp (7 s) are fresh; the rest is old or missing.
 
@@ -1028,7 +1028,7 @@ class Hud:
             self.cvt.set_view(self.view if self.view in ("all", "dyno") else "main")   # DSP / codes: OBD reads like the main screen
             self.dsp_dirty.set()
             return
-        if cmd == "dtc_clear":                 # the reader thread checks engine off / stopped and answers {"dtc_clear": text}
+        if cmd == "dtc_clear":                 # the reader thread checks P / stopped and answers {"dtc_clear": text}
             if self.view == "codes":
                 self.cvt.request_clear()
             return

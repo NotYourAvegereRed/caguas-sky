@@ -133,7 +133,7 @@ VIEWS.codes = () => {
   return `<div class="t-grid" style="grid-template-columns:1fr 2.2fr;height:450px">
     <div class="t-col" style="--i:0"><h3>NOW · ECM TCM BCM</h3>${cur}
       <div class="t-clear"${DTCS.length ? "" : " hidden"} id="t-clear" role="button"><i></i><span>HOLD 2 S TO CLEAR</span></div>
-      <div class="t-mini" id="t-clearmsg">${CLEAR_MSG || (DTCS.length ? "engine off · key on · car stopped" : "")}</div></div>
+      <div class="t-mini" id="t-clearmsg">${CLEAR_MSG || (DTCS.length ? "in P · car stopped" : "")}</div></div>
     <div class="t-col" style="--i:1"><h3>CODE HISTORY</h3><table class="t-ptab t-ctab"><tr><th>CODE</th><th>MODULE</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>SCANS</th></tr>
       ${rows.slice(0, HIST_ROWS).map(tr).join("") || `<tr><td colspan="5">nothing stored yet</td></tr>`}</table>
       ${rows.length > HIST_ROWS ? `<div class="t-mini">+${rows.length - HIST_ROWS} OLDER</div>` : ""}</div></div>`;
@@ -319,7 +319,7 @@ function setAlerts(list) {
   }
   update();
 }
-// CLEAR: hold 2 s (the bar fills), let go early = nothing sent. hud-service only clears with the engine off.
+// CLEAR: hold 2 s (the bar fills), let go early = nothing sent. hud-service only clears in P, stopped.
 const HOLD_MS = 2000;
 let holdT = 0;
 const holdEnd = () => { clearTimeout(holdT); $("t-clear")?.classList.remove("hold"); };
@@ -329,7 +329,11 @@ content.addEventListener("pointerdown", (e) => {
   holdT = setTimeout(() => { holdEnd(); CLEAR_MSG = "CLEARING..."; $("t-clearmsg").textContent = CLEAR_MSG; window.hud?.send?.({ cmd: "dtc_clear" }); }, HOLD_MS);
 });
 for (const ev of ["pointerup", "pointercancel", "pointerleave", "pointermove"]) content.addEventListener(ev, (e) => { if (ev !== "pointermove" || !e.target.closest?.("#t-clear")) holdEnd(); });
+let codesSig = "";
 function setCodes(d) {
+  const sig = JSON.stringify([d.dtcs, d.dtc_hist, d.dtc_scans]);
+  if (sig === codesSig) return;                        // same as before (it comes every second): no re-render, the hold bar keeps filling
+  codesSig = sig;
   DTCS = Array.isArray(d.dtcs) ? d.dtcs : []; HIST = Array.isArray(d.dtc_hist) ? d.dtc_hist : HIST; SCANS = d.dtc_scans ?? SCANS;
   setAlerts(ALERTS);
   if (tab === "codes") render();

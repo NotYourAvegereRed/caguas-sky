@@ -167,7 +167,7 @@ The scan itself never clears. It freezes the gauges for about 1-2 s.
 
 ## Clear codes from the CODES tab (2026-11-10)
 The only thing the dash ever writes to the car. HOLD the red button 2 s (shown only while there are codes).
-cvt_reader refuses unless the engine is off (ECM rpm fresh and < 200) and the speed is 0, scans first (so the
+cvt_reader refuses unless the TCM says gear P and speed 0 (the engine may run: without it the screen is off), scans first (so the
 history keeps what is cleared), clears only the modules that have a code, then scans again and tells the page.
 - ECM: `10C0` -> `14FF00` (answers `54 FF 00`) -> `1081`. From the Bluetooth snoop of the phone app, 2026-11-10.
 - TCM / BCM: standard UDS `14 FF FF FF`. NOT seen on the car yet (they had no codes); check `grep "DTC clear"`.

@@ -2,7 +2,7 @@
 
 READ-ONLY while it runs by itself: only mode 22 (read data by identifier), mode 01 (standard PIDs) and reading
 trouble codes (19 02 / mode 03 / mode 07). The ONE write is clearing the trouble codes (service 14), and only when
-the page asks for it (request_clear: hold the button on the CODES tab) with the engine off and the car stopped.
+the page asks for it (request_clear: hold the button on the CODES tab) with the car in P and stopped.
 PIDs checked against CVTz50 and a 52 min drive log (Setup Log sections 25-26).
 TCM PIDs are asked in ONE multi-DID request (header 7E1, replies 7E9): 1-byte PIDs + the 2-byte
 TCC solenoid current 1219 (ISOLT1, mA; found 2026-10-27 with cvt_probe.py watch 12).
@@ -365,7 +365,6 @@ DTC_MODULES = [("ECM", "7DF", "7E8", ["03", "07"]),
 DTC_CLEAR = {"ECM": ("7E0", "7E8", ["10C0", "14FF00", "1081"]),
              "TCM": ("7E1", "7E9", ["14FFFFFF"]),
              "BCM": ("745", "765", ["14FFFFFF"])}
-CLEAR_MAX_RPM = 200                            # clearing only with the engine off (key ON) and the car stopped
 DTC_TRIES = 3                                  # scans with a module not answering before giving up (per engine start)
 DTC_SETTLE_S = 10.0                            # engine running this long before the scan
 
@@ -675,11 +674,10 @@ class CvtReader:
     def _clear_dtcs(self, ser):
         """Clear the stored codes of every module that has one. Returns the text for the page."""
         now = time.monotonic()
-        with self._lock:
-            rpm = self._eng.get("rpm") if now - self._rpm_ts < ANSWER_FRESH_S else None
-            speed = self._data.get("speed_kmh") if self._data and now - self._ts < STALE_S else None
-        if rpm is None or rpm >= CLEAR_MAX_RPM or speed:
-            return "NOT CLEARED · ENGINE OFF, KEY ON, CAR STOPPED"
+        with self._lock:                               # engine may run (the screen is off without it): P and stopped
+            d = self._data if self._data and now - self._ts < STALE_S else {}
+        if d.get("gear") != "P" or d.get("speed_kmh") != 0:
+            return "NOT CLEARED · PUT THE CAR IN P, STOPPED"
         self._read_dtcs(ser)                           # fresh list: the history keeps what is about to go
         mods = [m for m in DTC_CLEAR if any(d["mod"] == m for d in self.dtcs())]
         if not mods:

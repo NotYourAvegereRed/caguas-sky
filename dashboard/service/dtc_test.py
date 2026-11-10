@@ -45,28 +45,28 @@ assert r.dtcs() == [{"mod": "ECM", "code": "P0102"}, {"mod": "ECM", "code": "P01
 assert elm.sent[-2:] == ["ATAR", "ATAT2"] and not any(s.startswith(("14", "04")) for s in elm.sent)     # a scan never clears
 assert elm.sent.index("1081") < elm.sent.index("03") and r.pop_scans() == [r.dtcs()] and r.pop_scans() == []
 
-# ---- CLEAR button: refused unless engine off + stopped; ECM sequence from the snoop; only modules with a code ----
+# ---- CLEAR button: refused unless in P + stopped; ECM sequence from the snoop; only modules with a code ----
 import time
 class ClearElm(FakeElm):
     def write(self, data):
         if data.decode().strip() == "14FF00":              # the ECM forgets its codes
             self.replies = {**self.replies, ("7DF", "03"): "7E8 02 43 00", ("7DF", "07"): "7E8 02 47 00"}
         super().write(data)
-def reader(rpm, speed):
+def reader(gear, speed):
     r = c.CvtReader()
-    r._eng, r._rpm_ts = {"rpm": rpm}, time.monotonic()
-    r._data, r._ts = {"speed_kmh": speed}, time.monotonic()
+    r._data, r._ts = {"gear": gear, "speed_kmh": speed}, time.monotonic()
     return r
-for rpm, speed in ((700, 0), (0, 5), (None, 0)):
+assert c.CvtReader()._clear_dtcs(FakeElm({})).startswith("NOT CLEARED")              # no TCM data at all
+for rpm, speed in (("D", 0), ("P", 5), ("N", 0), (None, 0), ("P", None)):
     elm = ClearElm({**ROGUE, ("7E0", "14FF00"): "7E8 03 54 FF 00"})
     assert reader(rpm, speed)._clear_dtcs(elm).startswith("NOT CLEARED") and elm.sent == []
 elm = ClearElm({**ROGUE, ("7E0", "10C0"): "7E8 02 50 C0", ("7E0", "14FF00"): "7E8 03 54 FF 00"})
-r = reader(0, 0)
+r = reader("P", 0)
 assert r._clear_dtcs(elm) == "CODES CLEARED" and r.dtcs() == []
 w = [s for s in elm.sent if s.startswith("14")]
 assert w == ["14FF00"] and elm.sent[elm.sent.index("14FF00") - 1] == "10C0"       # TCM / BCM had no codes: not touched
 assert len(r.pop_scans()) == 2                                                  # before (for the history) and after
-assert reader(0, 0)._clear_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) == "NO CODES TO CLEAR"
+assert reader("P", 0)._clear_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) == "NO CODES TO CLEAR"
 # ECM silent (still in its session): the other codes are kept, but the scan is not done -> the loop retries
 r = c.CvtReader()
 assert r._read_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) is False and r.dtc_version == 1
