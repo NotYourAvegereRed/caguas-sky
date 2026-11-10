@@ -185,7 +185,7 @@ for (const g of CONFIG.gauges) {
   cvtHost.appendChild(el);
   gaugeEls[g.key] = { el, arc: el.querySelector(".gauge__value"), num: el.querySelector("b"), cfg: g,
     gap: el.querySelector(".gauge__gap"), tgtEl: el.querySelector(".gauge__tgt"), pkEl: el.querySelector(".gauge__peak"),
-    subEl: el.querySelector(".gauge__sub"), tgt: null, peak: g.peak ? new PeakHold(g.peak === "dim" ? Infinity : PEAK_HOLD_MS) : null, raw: null };
+    subEl: el.querySelector(".gauge__sub"), tgt: null, tg: { target: null, shown: null }, /* the target arrow, eased like the needle */ peak: g.peak ? new PeakHold(g.peak === "dim" ? Infinity : PEAK_HOLD_MS) : null, raw: null };
 }
 const angleOf = (cfg, v) => 135 + 270 * Math.max(0, Math.min(1, (v - cfg.min) / (cfg.max - cfg.min)));
 const fmtD = (x, dec) => (x < 0 ? "−" : "+") + Math.abs(x).toFixed(dec);   // real minus sign, like the mockup
@@ -195,11 +195,11 @@ function drawMarks(o, now) {
   const { cfg } = o, set = (k, el, attr, val) => { if (o[k] !== val) { el.setAttribute(attr, val); o[k] = val; } };
   const anim = WAKE.k < 1 || SWEEP.on || o.shown == null;
   if (o.tgtEl) {
-    const ok = !anim && o.tgt != null;
+    const ok = !anim && o.tg.shown != null;
     set("_tO", o.tgtEl, "opacity", ok ? "1" : "0"); set("_gO", o.gap, "opacity", ok ? ".35" : "0");
     if (ok) {
-      const fA = 75 * (angleOf(cfg, o.shown) - 135) / 270, fT = 75 * (angleOf(cfg, o.tgt) - 135) / 270;
-      set("_tR", o.tgtEl, "transform", `rotate(${angleOf(cfg, o.tgt).toFixed(1)} 60 60)`);
+      const fA = 75 * (angleOf(cfg, o.shown) - 135) / 270, fT = 75 * (angleOf(cfg, o.tg.shown) - 135) / 270;
+      set("_tR", o.tgtEl, "transform", `rotate(${angleOf(cfg, o.tg.shown).toFixed(1)} 60 60)`);
       set("_gD", o.gap, "stroke-dasharray", `${Math.abs(fA - fT).toFixed(2)} 100`);
       set("_gF", o.gap, "stroke-dashoffset", (-Math.min(fA, fT)).toFixed(2));
     }
@@ -343,7 +343,9 @@ function tick(now) {
   // adaptive: each gauge picks its own draw rate from how fast its needle is moving (ADAPT_FPS), capped by ?fps=
   for (const o of Object.values(gaugeEls)) {
     if (o.target != null && o.shown != null) stepTo(o, now);
-    if (!due(o, o.cfg.max - o.cfg.min, DRAW_FPS, now)) continue;
+    if (o.tg.target != null && o.tg.shown != null) stepTo(o.tg, now);
+    const span = o.cfg.max - o.cfg.min, dN = due(o, span, DRAW_FPS, now), dT = due(o.tg, span, DRAW_FPS, now);
+    if (!dN && !dT) continue;                             // drawn at the rate of whichever moves faster: needle or arrow
     if (o.shown != null && o.shown !== o.drawnAt) { drawGauge(o, o.shown); o.drawnAt = o.shown; }
     drawMarks(o, now);
   }
@@ -361,7 +363,13 @@ function setCvt(c) {
   $("cvt-hz").textContent = c?.hz ? `${Math.round(c.hz)} Hz` : "";      // CVT readings per second
   for (const g of CONFIG.gauges) {
     setGauge(g.key, c?.[g.key]);
-    if (g.tgt) { const t = c?.[g.tgt]; gaugeEls[g.key].tgt = t == null || Number.isNaN(t) ? null : t; }
+    if (g.tgt) {
+      const o = gaugeEls[g.key], t = c?.[g.tgt], tg = o.tg;
+      o.tgt = t == null || Number.isNaN(t) ? null : t;     // the number under the gauge shows the real target, the arrow eases to it
+      if (o.tgt == null) { tg.target = tg.shown = null; tg.lastT = tg.dur = null; }
+      else if (tg.shown == null || SMOOTH_TAU <= 0) { tg.shown = tg.target = o.tgt; tg.dur = null; tg.lastT = performance.now(); }
+      else retarget(tg, o.tgt);
+    }
   }
   setLockup(c?.lockup, c?.slip_rpm, c?.tcc_a);
 }
