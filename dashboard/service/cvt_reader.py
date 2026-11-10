@@ -1,6 +1,7 @@
 """Live CVT data from the Nissan Rogue TCM through the vLinker FS (USB, ELM327 commands).
 
-READ-ONLY: only mode 22 (read data by identifier) and mode 01 (standard PIDs).
+READ-ONLY: only mode 22 (read data by identifier), mode 01 (standard PIDs) and reading trouble codes
+(19 02 / 18 02 / mode 03). Never a clear (14 / 04).
 PIDs checked against CVTz50 and a 52 min drive log (Setup Log sections 25-26).
 TCM PIDs are asked in ONE multi-DID request (header 7E1, replies 7E9): 1-byte PIDs + the 2-byte
 TCC solenoid current 1219 (ISOLT1, mA; found 2026-10-27 with cvt_probe.py watch 12).
@@ -29,6 +30,8 @@ rp2040-link reads it and sends ENG 0/1/2. If this reader stops (adapter unplugge
 RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
+Trouble codes (2026-11-10): read ONCE per service start, right after the car first answers, from the
+ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
 """
@@ -324,6 +327,32 @@ class Alerts:
         return [self.active[k] for k in order if k in self.active]
 
 
+# ---------------- trouble codes (ECM / TCM / BCM), read once at startup ----------------
+# Same requests as tools/dtc_probe.py; the first one a module answers wins. 19 02 mask 0D = failed now, pending
+# or confirmed (mask FF would also list every code whose self-test just has not run yet).
+# shortcut: request / reply IDs and services not yet confirmed on the Rogue, check the "DTC ..." log lines
+# on the first start in the car and delete the requests that never answer.
+DTC_MODULES = [("ECM", "7E0", "7E8"), ("TCM", "7E1", "7E9"), ("BCM", "745", "765")]
+DTC_REQUESTS = ["19020D", "1802FF00"]          # UDS, then KWP2000 (Nissan)
+DTC_TRIES = 3                                  # scans with no module answering before giving up
+
+
+def dtc_code(hi, lo):
+    return f"{'PCBU'[hi >> 6]}{(hi >> 4) & 3}{hi & 0xF:X}{lo:02X}"
+
+
+def dtc_decode(pl):
+    """positive DTC reply -> ['P0420', ...] (may be empty); None if it is not one (no answer, 7F refusal)."""
+    size = {0x59: (3, 4),      # 59 02 mask [hi lo failure-type status]...
+            0x58: (2, 3),      # 58 count [hi lo status]...
+            0x43: (2, 2)}.get(pl[0] if pl else None)      # 43 count [hi lo]...
+    if not size:
+        return None
+    recs, n = pl[size[0]:], size[1]
+    codes = [dtc_code(recs[i], recs[i + 1]) for i in range(0, len(recs) - n + 1, n) if recs[i] or recs[i + 1]]
+    return list(dict.fromkeys(codes))
+
+
 def chunks(seq, n):
     return [seq[i:i + n] for i in range(0, len(seq), n)]
 
@@ -353,7 +382,10 @@ def isotp_payload(text, rx=TCM_REPLY):
             continue
         kind = b[0] >> 4
         if kind == 0:
-            return b[1:1 + (b[0] & 0x0F)]
+            frame = b[1:1 + (b[0] & 0x0F)]
+            if len(frame) >= 3 and frame[0] == 0x7F and frame[2] == 0x78:
+                continue                   # "response pending": the real answer follows
+            return frame
         if kind == 1:
             length = ((b[0] & 0x0F) << 8) | b[1]
             payload = b[2:]
@@ -410,6 +442,7 @@ class CvtReader:
         self._eng_round = 0
         self._power, self._power_ts, self._tcm_loops = {}, 0.0, 0
         self._ans_ts, self._rpm_ts, self._status_ts, self._pn_loop = -1e9, -1e9, -1e9, 0
+        self._dtcs, self.dtc_version, self._dtc_left = [], 0, DTC_TRIES
 
     def _write_status(self, now):
         """engine status for rp2040-link (/dev/shm/caguas-engine), at most every ENGINE_WRITE_S"""
@@ -441,6 +474,11 @@ class CvtReader:
     def alerts(self):
         with self._lock:
             return self.alert.list()
+
+    def dtcs(self):
+        """[{"mod": "ECM", "code": "P0420"}, ...] from the startup scan ([] = none, or not scanned yet)."""
+        with self._lock:
+            return list(self._dtcs)
 
     def _warn(self, key, msg):
         if key not in self._warned:
@@ -558,6 +596,33 @@ class CvtReader:
                 self._eng["fluid_wear"] = v
                 self.eng_version += 1
 
+    def _read_dtcs(self, ser):
+        """Ask each module for its stored codes (read-only). True when at least one module answered."""
+        found, answered = [], False
+        for name, tx, rx in DTC_MODULES:
+            self._send(ser, "ATCRA" + rx)              # only this module's replies (the BCM is outside 7E8-7EF)
+            reqs = [(tx, r) for r in DTC_REQUESTS]
+            if name == "ECM":
+                self._header(ser, tx)
+                self._session(ser)                     # the ECM only talks inside 10C0 once the loop opened it
+                reqs.append(("7DF", "03"))             # last resort: standard OBD2 stored codes
+            for hdr, req in reqs:
+                self._header(ser, hdr)
+                pl = isotp_payload(self._send(ser, req, 2.0), rx)
+                codes = dtc_decode(pl)
+                print(f"DTC {name} {req}: " + ("no answer" if not pl else
+                      " ".join(f"{b:02X}" for b in pl[:12]) if codes is None else
+                      ", ".join(codes) or "no codes"), flush=True)
+                if codes is not None:
+                    found += [{"mod": name, "code": c} for c in codes]
+                    answered = True
+                    break
+        self._send(ser, "ATAR")                        # back to automatic receive
+        if answered:
+            with self._lock:
+                self._dtcs, self.dtc_version = found, self.dtc_version + 1
+        return answered
+
     def _run(self):
         while True:
             port = find_port()
@@ -583,6 +648,7 @@ class CvtReader:
         combined, tcc_missing = True, 0    # TCC current in the same request; own request if the TCM refuses
         last_cvt = last_fast = last_temp = last_wear = -1e9
         rounds, t_eng = 0, time.monotonic()
+        dtc_next = -1e9
         while True:
             now = time.monotonic()
             view = self.view
@@ -684,6 +750,10 @@ class CvtReader:
                     self.alert.clear()
             if got_any:
                 self._ans_ts = now
+                if self._dtc_left and now >= dtc_next:     # car awake: trouble codes, once per service start
+                    self._dtc_left = 0 if self._read_dtcs(ser) else self._dtc_left - 1
+                    now = time.monotonic()
+                    dtc_next = now + 10
             self._write_status(now)
             if not got_any:
                 misses += 1

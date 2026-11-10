@@ -1,11 +1,11 @@
-// Telemetry window: swipe left from the main screen (or tap the red warning badge).
+// Telemetry window: swipe left from the main screen (or tap the warning badge: red = alert, yellow = trouble codes).
 // Tabs ALL / ENGINE / CVT. The page tells hud-service which one is open ({cmd:"view"}), so the vLinker
 // only reads what is on screen; on the main screen it only reads oil pressure + rpm (1 s) and
 // coolant + oil temp (7 s) in the background for the alerts.
-// Data in (events from hud.js):  "hud-cvt" -> cvt dict | null (~12/s),  "hud-msg" -> {eng} / {alerts},
+// Data in (events from hud.js):  "hud-cvt" -> cvt dict | null (~12/s),  "hud-msg" -> {eng} / {alerts} / {dtcs},
 //                                 "hud-open" -> the websocket (re)connected.
 // Data out: window.hud.send({cmd:"view", view}).   Taps that are not swipes -> "hud-tap" (volume in hud.js).
-// ?demo=1 fake data (add &alert=oil|coolant|oiltemp to force an alert), ?page=tele opens on this page.
+// ?demo=1 fake data (add &alert=oil|coolant|oiltemp|dtc to force an alert / trouble codes), ?page=tele opens on this page.
 
 const Q = new URLSearchParams(location.search);
 const DEMO = Q.get("demo") === "1";
@@ -16,7 +16,7 @@ const LIM = { coolant: [105, 110], oil: [120, 130], cvt: [90, 110] };
 const WEAR_MAX = 200;              // your own limit for the CVT fluid wear bar (Nissan's is 210,000)
 const LOCK_TEXT = { open: "Unlocked", engaging: "Engaging", releasing: "Releasing", locked: "Locked", coast: "Locked · coast" };
 
-let E = null, C = null, ALERTS = [];
+let E = null, C = null, ALERTS = [], DTCS = [];
 let PWD = {}, pwTs = 0;                              // power fields (eng_nm, hp, ratio...), from whichever message is newer
 const PW = (k) => performance.now() - pwTs < 3000 ? PWD[k] ?? null : null;
 const takePower = (d) => { if (d && d.eng_nm !== undefined) { PWD = d; pwTs = performance.now(); } };
@@ -276,7 +276,7 @@ const ALERT_TEXT = {
 const panelCvt = document.getElementById("panel-cvt");
 const badge = document.createElement("div");
 badge.className = "t-badge"; badge.id = "t-badge"; badge.setAttribute("role", "button"); badge.setAttribute("aria-label", "Warning");
-badge.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 3 L22.5 21 H1.5 Z" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/><rect x="10.8" y="9" width="2.4" height="6.5" rx="1" fill="#fff"/><circle cx="12" cy="18" r="1.35" fill="#fff"/></svg>`;
+badge.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 3 L22.5 21 H1.5 Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><rect x="10.8" y="9" width="2.4" height="6.5" rx="1" fill="currentColor"/><circle cx="12" cy="18" r="1.35" fill="currentColor"/></svg>`;
 badge.addEventListener("click", () => go("tele"));
 panelCvt?.appendChild(badge);
 // same fillet as the panel: badge sits INSET px from the panel's corner, so its radius = panel radius - INSET (concentric)
@@ -287,17 +287,31 @@ function placeBadge() {
   badge.style.setProperty("--t-badge-r", `${Math.max(6, r - INSET)}px`);
 }
 placeBadge();
-function setAlerts(list) {
-  ALERTS = Array.isArray(list) ? list : [];
-  const on = ALERTS.length > 0;
-  badge.classList.toggle("on", on); panelCvt?.classList.toggle("t-warn", on);
+const DTC_SHOWN = 4;                                   // codes that fit in the banner
+function setAlerts(list, dtcs = DTCS) {
+  ALERTS = Array.isArray(list) ? list : []; DTCS = Array.isArray(dtcs) ? dtcs : [];
+  const on = ALERTS.length > 0, dtc = !on && DTCS.length > 0;       // a red alert wins over the yellow codes
+  badge.classList.toggle("on", on || dtc); badge.classList.toggle("dtc", dtc); panelCvt?.classList.toggle("t-warn", on || dtc);
   page.classList.toggle("t-alert", on);
   if (on) {
+    page.classList.remove("t-dtc");
     const a = ALERTS[0], [t, s] = (ALERT_TEXT[a.id] || (() => ["WARNING", ""]))(a);
     $("t-ttl").textContent = t; $("t-tsub").textContent = s;
     $("t-tmore").textContent = ALERTS.length > 1 ? `+${ALERTS.length - 1} MORE` : "";
+  } else if (dtc) {
+    $("t-ttl").textContent = DTCS.length === 1 ? "TROUBLE CODE" : `${DTCS.length} TROUBLE CODES`;
+    $("t-tsub").textContent = DTCS.slice(0, DTC_SHOWN).map((d) => `${d.mod} ${d.code}`).join(" · ");
+    $("t-tmore").textContent = DTCS.length > DTC_SHOWN ? `+${DTCS.length - DTC_SHOWN} MORE` : "";
+    if (view === "tele") flashDtc();
   }
   update();
+}
+// trouble codes stay all drive: the yellow banner shows for 6 s when the page opens, it does not sit on the rpm bar
+let dtcT = 0;
+function flashDtc() {
+  if (!DTCS.length || ALERTS.length) return;
+  page.classList.add("t-dtc"); clearTimeout(dtcT);
+  dtcT = setTimeout(() => page.classList.remove("t-dtc"), 6000);
 }
 
 // ---------------------------------------------------------------- tabs
@@ -331,7 +345,7 @@ function go(v) {
   const shown = v === "tele" ? page : v === "dsp" ? pageDsp : pageMain;
   hideT = setTimeout(() => PAGES.forEach((p) => p !== shown && p.classList.add("pg-off")), 480);
   if (v === "tele" && was !== "tele") {
-    update();
+    update(); flashDtc();
     if (introPending) {
       introPending = false;
       page.classList.remove("t-intro"); page.classList.add("t-pre");
@@ -405,7 +419,7 @@ window.addEventListener("hud-cvt", (ev) => {
 window.addEventListener("hud-msg", (ev) => {
   const d = ev.detail;
   if ("eng" in d) { E = d.eng; if (E) { engTs = performance.now(); takePower(E); } update(); }
-  if ("alerts" in d) setAlerts(d.alerts);
+  if ("alerts" in d || "dtcs" in d) setAlerts(d.alerts ?? ALERTS, d.dtcs ?? DTCS);
 });
 window.addEventListener("hud-open", sendView);
 
@@ -432,7 +446,7 @@ if (DEMO) {
     engTs = performance.now(); update();
   }, 300);
   const A = { oil: [{ id: "oil_pressure", mv: 920, psi: 3.1, rpm: 780, min_mv: 1000 }], coolant: [{ id: "coolant", value: 111 }], oiltemp: [{ id: "oil_temp", value: 131 }] };
-  setTimeout(() => setAlerts(A[forced] || []), 50);
+  setTimeout(() => setAlerts(A[forced] || [], forced === "dtc" ? [{ mod: "ECM", code: "P0420" }, { mod: "TCM", code: "P17F0" }] : []), 50);
 }
 
 render();

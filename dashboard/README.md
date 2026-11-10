@@ -147,3 +147,14 @@ CVT tab (gear ratio tile). Read only off the main screen: ALL / ENGINE every 2nd
 1106-1109 are 4 copies of one pedal-like value; 1215 / 1208 / 1224 move with torque but are not engine torque.
 Oil pressure on the same drive: lowest hot idle (oil 93 C) 1285 mV, plateau ~3500 mV (~57 psi) above 3500 rpm;
 the alert never fired and kept 285+ mV of margin at idle.
+
+## Trouble codes at startup: yellow badge (2026-11-10)
+cvt_reader.py reads the stored codes ONCE per service start, right after the car first answers (`_read_dtcs`):
+ECM (7E0 / 7E8), TCM (7E1 / 7E9), BCM (745 / 765). Per module the first request that answers wins: `19 02 0D`
+(UDS: failed now, pending or confirmed), then `18 02 FF 00` (KWP, Nissan), and for the ECM also OBD2 mode 03.
+Read-only, never a clear. The scan freezes the gauges for about 1-2 s, once.
+- Page gets `{"dtcs": [{mod, code}]}`. Any code = the warning badge in YELLOW, no pulse (a red alert still wins).
+  Tap it: the telemetry page shows the codes in a yellow banner for 6 s (every time the page opens).
+- Not yet tested on the car: the IDs and services are the ones in tools/dtc_probe.py. On the first start check
+  `journalctl -u hud-service | grep DTC` (one line per module and request: codes, "no codes", "no answer" or the refusal).
+- Preview: `?demo=1&alert=dtc`. Self-check: `python3 dashboard/service/dtc_test.py`.

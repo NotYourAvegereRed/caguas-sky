@@ -25,6 +25,7 @@ Telemetry window (swipe left on the main screen):
                              maf_gs, load_pct, timing_deg, stft_pct, ltft_pct, inj_ms, ecm_v, exhcam_deg,
                              vtc_pct, thr1_v, thr2_v, ped1_v, ped2_v, af_v, ac_v, fluid_wear, eng_hz, cvt_hz} | null}
                     {"alerts": [{id: "oil_pressure", mv, psi, rpm, min_mv} | {id: "coolant"|"oil_temp", value}]}
+                    {"dtcs": [{mod: "ECM"|"TCM"|"BCM", code: "P0420"}]}   trouble codes, read once at startup
     On the main screen only eop_mv/rpm (1 s) and coolant/oil temp (7 s) are fresh; the rest is old or missing.
 
 Screen (real backlight: RP2040 firmware v0.9 PWMs the Santek's backlight driver enable):
@@ -792,7 +793,7 @@ class Hud:
 
     def snapshot(self):
         return json.dumps({"media": self.media(), "cvt": self.cvt.latest(), "vol": self.vol.state(),
-                           "eng": self.eng(), "alerts": self.cvt.alerts(), "welcomed": self.display.welcomed,
+                           "eng": self.eng(), "alerts": self.cvt.alerts(), "dtcs": self.cvt.dtcs(), "welcomed": self.display.welcomed,
                            "car": self.display.car, "trip": self.trip.last, "units": self.display.cfg["units"]})
 
     # ---------- state updates ----------
@@ -1133,7 +1134,7 @@ class Hud:
 
     async def eng_loop(self):
         """Push engine data when it changes (rate set by the view), alerts as soon as they change."""
-        last_v, last_a = -1, -1
+        last_v, last_a, last_d = -1, -1, 0
         while True:
             await asyncio.sleep(0.1)
             if not self.clients:
@@ -1145,6 +1146,9 @@ class Hud:
             if self.cvt.alert.version != last_a:
                 last_a = self.cvt.alert.version
                 msgs.append(json.dumps({"alerts": self.cvt.alerts()}))
+            if self.cvt.dtc_version != last_d:
+                last_d = self.cvt.dtc_version
+                msgs.append(json.dumps({"dtcs": self.cvt.dtcs()}))
             for msg in msgs:
                 await asyncio.gather(*(self._send(c, msg) for c in list(self.clients)))
 
