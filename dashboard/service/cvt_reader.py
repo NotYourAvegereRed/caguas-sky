@@ -1,7 +1,8 @@
 """Live CVT data from the Nissan Rogue TCM through the vLinker FS (USB, ELM327 commands).
 
-READ-ONLY: only mode 22 (read data by identifier), mode 01 (standard PIDs) and reading trouble codes
-(19 02 / mode 03 / mode 07). Never a clear (14 / 04).
+READ-ONLY while it runs by itself: only mode 22 (read data by identifier), mode 01 (standard PIDs) and reading
+trouble codes (19 02 / mode 03 / mode 07). The ONE write is clearing the trouble codes (service 14), and only when
+the page asks for it (request_clear: hold the button on the CODES tab) with the engine off and the car stopped.
 PIDs checked against CVTz50 and a 52 min drive log (Setup Log sections 25-26).
 TCM PIDs are asked in ONE multi-DID request (header 7E1, replies 7E9): 1-byte PIDs + the 2-byte
 TCC solenoid current 1219 (ISOLT1, mA; found 2026-10-27 with cvt_probe.py watch 12).
@@ -32,7 +33,7 @@ RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
 Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
-voltage, every module awake) plus DTC_ECM_QUIET_S with no ECM reads, from the ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
+voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
 """
@@ -356,8 +357,15 @@ DTC_MODULES = [("ECM", "7DF", "7E8", ["03", "07"]),
                ("TCM", "7E1", "7E9", ["19020D"]),
                ("BCM", "745", "765", ["19020D"])]
 # Pi test 2026-11-10: inside the 10C0 session the ECM does not answer mode 03 / 07 (same as the old 010C), so the
-# loop stops its ECM reads for DTC_ECM_QUIET_S first (the session times out by itself), then scans.
-DTC_ECM_QUIET_S = 6.0                          # shortcut: 6 s assumes the usual 5 s session timeout, raise it if "DTC ECM 03: no answer" stays
+# scan first sends 10 81 (back to the default session), like the phone app does (Bluetooth snoop 2026-11-10:
+# 1081 -> 50 81, then 03 / 07 answer at once).
+# Clearing, from the same snoop, ECM: 10C0 -> 14FF00 (answers 54 FF 00) -> 1081.
+# shortcut: TCM / BCM clear is the standard UDS 14 FF FF FF, not seen on the car yet (they had no codes to clear);
+# check the "DTC clear" log lines the first time one of them has a code.
+DTC_CLEAR = {"ECM": ("7E0", "7E8", ["10C0", "14FF00", "1081"]),
+             "TCM": ("7E1", "7E9", ["14FFFFFF"]),
+             "BCM": ("745", "765", ["14FFFFFF"])}
+CLEAR_MAX_RPM = 200                            # clearing only with the engine off (key ON) and the car stopped
 DTC_TRIES = 3                                  # scans with a module not answering before giving up (per engine start)
 DTC_SETTLE_S = 10.0                            # engine running this long before the scan
 
@@ -468,6 +476,8 @@ class CvtReader:
         self._power, self._power_ts, self._tcm_loops = {}, 0.0, 0
         self._ans_ts, self._rpm_ts, self._status_ts, self._pn_loop = -1e9, -1e9, -1e9, 0
         self._dtcs, self.dtc_version, self._dtc_left, self._dtc_run = [], 0, DTC_TRIES, None
+        self._scans = collections.deque(maxlen=20)     # every scan result, for the code history (pop_scans)
+        self._clear_req, self.clear_msg, self.clear_version = False, None, 0
 
     def _write_status(self, now):
         """engine status for rp2040-link (/dev/shm/caguas-engine), at most every ENGINE_WRITE_S"""
@@ -504,6 +514,17 @@ class CvtReader:
         """[{"mod": "ECM", "code": "P0420"}, ...] from the last scan ([] = none, or not scanned yet: dtc_version 0)."""
         with self._lock:
             return list(self._dtcs)
+
+    def pop_scans(self):
+        """results of the scans since the last call (the scan just before a clear included)"""
+        out = []
+        while self._scans:
+            out.append(self._scans.popleft())
+        return out
+
+    def request_clear(self):
+        """page asked to clear the trouble codes; the reader thread does it (clear_msg / clear_version = result)"""
+        self._clear_req = True
 
     def _warn(self, key, msg):
         if key not in self._warned:
@@ -629,6 +650,10 @@ class CvtReader:
         self._send(ser, "ATAT0")                       # fixed reply timeout: the adaptive one is tuned to the fast TCM
         for name, tx, rx, reqs in DTC_MODULES:
             self._send(ser, "ATCRA" + rx)              # only this module's replies (the BCM is outside 7E8-7EF)
+            if name == "ECM":                          # out of the 10C0 session, or it ignores mode 03 / 07
+                self._header(ser, ECM_HEADER)
+                self._send(ser, "1081", 0.5)
+                self._sess_t = -1e9                    # the next ECM read opens 10C0 again
             self._header(ser, tx)
             for req in reqs:
                 pl = isotp_payload(self._send(ser, req, 2.0), rx)
@@ -644,7 +669,32 @@ class CvtReader:
         if answered:
             with self._lock:
                 self._dtcs, self.dtc_version = found, self.dtc_version + 1
+            self._scans.append(found)
         return len(answered) == len(DTC_MODULES)
+
+    def _clear_dtcs(self, ser):
+        """Clear the stored codes of every module that has one. Returns the text for the page."""
+        now = time.monotonic()
+        with self._lock:
+            rpm = self._eng.get("rpm") if now - self._rpm_ts < ANSWER_FRESH_S else None
+            speed = self._data.get("speed_kmh") if self._data and now - self._ts < STALE_S else None
+        if rpm is None or rpm >= CLEAR_MAX_RPM or speed:
+            return "NOT CLEARED · ENGINE OFF, KEY ON, CAR STOPPED"
+        self._read_dtcs(ser)                           # fresh list: the history keeps what is about to go
+        mods = [m for m in DTC_CLEAR if any(d["mod"] == m for d in self.dtcs())]
+        if not mods:
+            return "NO CODES TO CLEAR"
+        for name in mods:
+            tx, rx, reqs = DTC_CLEAR[name]
+            self._send(ser, "ATCRA" + rx)
+            self._header(ser, tx)
+            for req in reqs:
+                pl = isotp_payload(self._send(ser, req, 2.0), rx)
+                print(f"DTC clear {name} {req}: " + (" ".join(f"{b:02X}" for b in pl) if pl else "no answer"), flush=True)
+        self._sess_t = -1e9
+        self._read_dtcs(ser)                           # what is left (also puts the adapter back: ATAR)
+        left = self.dtcs()
+        return "CODES CLEARED" if not left else "STILL STORED · " + " ".join(d["code"] for d in left[:4])
 
     def _run(self):
         while True:
@@ -671,21 +721,23 @@ class CvtReader:
         combined, tcc_missing = True, 0    # TCC current in the same request; own request if the TCM refuses
         last_fast = last_temp = last_wear = -1e9
         rounds, t_eng = 0, time.monotonic()
-        dtc_next, dtc_quiet = -1e9, None           # dtc_quiet: ECM reads paused until then, then the code scan
+        dtc_next = -1e9
         while True:
             now = time.monotonic()
             run = self.alert._run_since            # trouble codes: once per engine start, after it settles
-            if dtc_quiet is None:
-                if run is not None and run != self._dtc_run and now - run >= DTC_SETTLE_S and now >= dtc_next:
-                    dtc_quiet = now + DTC_ECM_QUIET_S
-            elif now >= dtc_quiet:
+            if run is not None and run != self._dtc_run and now - run >= DTC_SETTLE_S and now >= dtc_next:
                 if self._read_dtcs(ser) or self._dtc_left <= 1:
                     self._dtc_run, self._dtc_left = run, DTC_TRIES
                 else:
                     self._dtc_left -= 1
                 now = time.monotonic()
-                dtc_next, dtc_quiet = now + 10, None
-            ecm_ok = dtc_quiet is None             # no ECM requests while its session runs out
+                dtc_next = now + 10
+            if self._clear_req:                    # the page's CLEAR button
+                self._clear_req = False
+                msg = self._clear_dtcs(ser)
+                print(f"DTC clear: {msg}", flush=True)
+                self.clear_msg, self.clear_version = msg, self.clear_version + 1
+                now = time.monotonic()
             view = self.view
             if self._view_changed:
                 self._view_changed = False
@@ -698,9 +750,7 @@ class CvtReader:
             self._pn_loop = self._pn_loop + 1 if pn else 0
 
             # ---- ECM: all engine DIDs on the engine/all tabs, otherwise only what the alerts need ----
-            if not ecm_ok:
-                pass
-            elif engine_tab:
+            if engine_tab:
                 raw = self._ecm(ser, ecm_round(self._eng_round))
                 self._eng_round += 1
                 if raw:
@@ -729,9 +779,9 @@ class CvtReader:
                 self._fluid_wear(ser)
 
             # ---- TCM: every loop on main / Dyno tab, every 2nd round on ALL ----
-            if (view == "all" and (not ecm_ok or self._eng_round % ALL_CVT_EVERY == 0)) or \
+            if (view == "all" and self._eng_round % ALL_CVT_EVERY == 0) or \
                (view in ("main", "dyno") and (not pn or self._pn_loop % PN_CVT_EVERY == 1)):
-                rpm = self._eng.get("rpm") if not ecm_ok or now - self._eng_ts < RPM_FRESH_S else None   # from the ECM reads
+                rpm = self._eng.get("rpm") if now - self._eng_ts < RPM_FRESH_S else None   # from the ECM reads
                 self._header(ser, TCM_HEADER)
                 raw = parse_multi(isotp_payload(self._send(ser, REQUEST if combined else REQUEST_NO_TCC, 1.0)))
                 if raw and combined and "1219" not in raw:

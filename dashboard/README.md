@@ -149,21 +149,31 @@ Oil pressure on the same drive: lowest hot idle (oil 93 C) 1285 mV, plateau ~350
 the alert never fired and kept 285+ mV of margin at idle.
 
 ## Trouble codes after engine start: yellow badge + CODES tab (2026-11-10)
-cvt_reader.py reads the stored codes once per engine start, about 16 s after the engine is running (`_read_dtcs`):
+cvt_reader.py reads the stored codes once per engine start, 10 s after the engine is running (`_read_dtcs`):
 ECM by OBD2 mode 03 + 07 (stored + pending; it refuses 19), TCM (7E1 / 7E9) and BCM (745 / 765) by `19 02 0D`
 (UDS: failed now, pending or confirmed). Checked with tools/dtc_probe.py on the car (MAF unplugged -> P0102).
-Read-only, never a clear. The scan freezes the gauges for about 1-2 s.
+The scan itself never clears. It freezes the gauges for about 1-2 s.
 - Page gets `{"dtcs": [{mod, code, quiet}], "dtc_hist": [...], "dtc_scans": n}`. A code = the warning badge in
   YELLOW, no pulse (a red alert still wins). Codes in `DTC_QUIET` (hud_service.py: U1000, U1001) are "common":
   no badge, no banner, only on the CODES tab. Add the ones your car always stores there.
 - Telemetry tabs are now ALL / DYNO / CODES (ENGINE and CVT are gone, their polling too). CODES: left = the last
-  scan, right = code history (first / last time seen, on how many engine starts), kept in
+  scan, right = code history (first / last time seen, in how many scans), kept in
   `~/.local/share/hud/dtcs.json`. Opening the telemetry page shows the codes in a yellow banner for 6 s.
-- Pi test 2026-11-10: TCM and BCM answer; the ECM does not answer mode 03 / 07 inside its 10C0 session. So the
-  reader stops its ECM reads for 6 s before the scan (the session runs out; gauges keep moving, rpm holds its last
-  value) and retries up to 3 times if a module stays silent. Scan = about 16 s after the engine starts. Check
+- Pi test 2026-11-10: TCM and BCM answer; the ECM does not answer mode 03 / 07 inside its 10C0 session, so the
+  scan first sends `10 81` (default session), like the phone app does. Retries up to 3 times if a module stays
+  silent. Check
   `journalctl -u hud-service | grep DTC` (one line per module and request: codes, "no codes", "no answer" or the refusal).
 - Preview: `?demo=1&alert=dtc`. Self-check: `python3 dashboard/service/dtc_test.py`.
+
+## Clear codes from the CODES tab (2026-11-10)
+The only thing the dash ever writes to the car. HOLD the red button 2 s (shown only while there are codes).
+cvt_reader refuses unless the engine is off (ECM rpm fresh and < 200) and the speed is 0, scans first (so the
+history keeps what is cleared), clears only the modules that have a code, then scans again and tells the page.
+- ECM: `10C0` -> `14FF00` (answers `54 FF 00`) -> `1081`. From the Bluetooth snoop of the phone app, 2026-11-10.
+- TCM / BCM: standard UDS `14 FF FF FF`. NOT seen on the car yet (they had no codes); check `grep "DTC clear"`.
+- Clearing also erases the freeze frame and resets the emissions readiness monitors.
+- The command is only taken while the CODES tab is open. HUD_BIND is still 0.0.0.0 (bench): anyone on the same
+  network can send it. Set 127.0.0.1 when the Pi goes in the car.
 
 ## New alerts: CVT fluid, battery (2026-11-10)
 - CVT fluid >= 100 C (clears below 97). The main gauge and the telemetry bar are red from 100 too (was 110).

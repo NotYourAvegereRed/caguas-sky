@@ -140,6 +140,12 @@ body.pg-drag .pg { transition: none; }
 /* codes tab */
 .t-ptab.t-ctab th, .t-ptab.t-ctab td.n { text-align: left; } .t-ptab.t-ctab td { padding: 8px 0; }
 .t-ctab tr.now td.n:first-child { color: var(--warn); } .t-quiet { opacity: .45; }
+.t-clear { position: relative; margin-top: auto; height: 54px; display: grid; place-items: center; border: 1px solid var(--crit); color: var(--crit);
+  font: 700 italic 18px/1 TBarlow; letter-spacing: 2px; cursor: pointer; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.t-clear[hidden] { display: none; } .t-clear span { position: relative; }
+.t-clear i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(255,45,61,.35); }
+.t-clear.hold i { width: 100%; transition: width 2s linear; }
+#t-clearmsg { margin-top: 8px; min-height: 14px; }
 
 /* alert banner */
 .t-toast { position: absolute; left: 262px; top: 58px; width: 500px; height: 72px; display: flex; align-items: center; gap: 14px; padding: 0 22px 0 18px;

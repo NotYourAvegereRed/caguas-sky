@@ -12,7 +12,7 @@ media = {status, title, artist, album, position_ms, duration_ms, codec, art}
   null while it is not found / not playing from Spotify / no internet (the page shows its placeholder).
   The once-a-second pushes leave "art" OUT while the cover is the same (the page keeps the one it has).
 
-CVT data (cvt_reader.py, vLinker FS on USB, read-only) is pushed separately, ~12 times a second:
+CVT data (cvt_reader.py, vLinker FS on USB, read-only except the CLEAR button below) is pushed separately, ~12 times a second:
     server -> page: {"cvt": {p_primary_target_mpa, p_primary_actual_mpa, p_secondary_target_mpa,
                              p_secondary_actual_mpa, p_line_target_mpa, temp_c, slip_rpm,
                              lockup: "open"|"engaging"|"releasing"|"locked"|"coast",
@@ -30,7 +30,10 @@ Telemetry window (swipe left on the main screen):
                     {"dtcs": [{mod: "ECM"|"TCM"|"BCM", code: "P0420", quiet}], "dtc_scans": n,
                      "dtc_hist": [{mod, code, quiet, first, last, n}]}   trouble codes, read once per engine start.
                      quiet = in DTC_QUIET (common, harmless: no yellow badge). History in ~/.local/share/hud/dtcs.json
-                     (HUD_DTC_FILE): first / last time seen and on how many engine starts.
+                     (HUD_DTC_FILE): first / last time seen and in how many scans.
+    page -> server: {"cmd": "dtc_clear"}   hold-to-clear button on the CODES tab (only taken while that tab is open);
+                    cvt_reader clears only with the engine off and the car stopped, then scans again
+    server -> page: {"dtc_clear": "CODES CLEARED" | "NOT CLEARED · ..." | "STILL STORED · ..." | "NO CODES TO CLEAR"}
     On the main screen only eop_mv/rpm (1 s) and coolant/oil temp (7 s) are fresh; the rest is old or missing.
 
 Screen (real backlight: RP2040 firmware v0.9 PWMs the Santek's backlight driver enable):
@@ -788,7 +791,7 @@ class Hud:
         self.art_uri = None
         self.art_tries = {}         # key -> (attempts, next_try_monotonic)
         self.art_sent = False       # cover in the last broadcast (False = none sent yet)
-        self.dtc_hist, self.dtc_seen = load_dtc_hist(), 0
+        self.dtc_hist, self.clear_seen = load_dtc_hist(), 0
         self.cvt = CvtReader()
         self.vol = DspVolume(DSP_WS)
         self.view = "main"            # what the page shows (the DSP page polls levels only while open)
@@ -1025,6 +1028,10 @@ class Hud:
             self.cvt.set_view(self.view if self.view in ("all", "dyno") else "main")   # DSP / codes: OBD reads like the main screen
             self.dsp_dirty.set()
             return
+        if cmd == "dtc_clear":                 # the reader thread checks engine off / stopped and answers {"dtc_clear": text}
+            if self.view == "codes":
+                self.cvt.request_clear()
+            return
         if cmd == "dsp_preset":                # {"cmd": "dsp_preset", "file": "night.yml"}: only files that are presets
             f = os.path.basename(str((msg or {}).get("file", "")))
             if any(p["file"] == f for p in dsp_presets()):
@@ -1211,10 +1218,14 @@ class Hud:
                     msgs.append({"car": car})
                 if summ:
                     msgs.append({"trip": summ, "units": self.display.cfg["units"]})
-                if self.cvt.dtc_version != self.dtc_seen:          # a scan finished: history, then the page
-                    self.dtc_seen = self.cvt.dtc_version
-                    log_dtcs(self.dtc_hist, self.cvt.dtcs())
+                scans = self.cvt.pop_scans()                       # scans finished: history, then the page
+                for found in scans:
+                    log_dtcs(self.dtc_hist, found)
+                if scans:
                     msgs.append(self.dtc_state())
+                if self.cvt.clear_version != self.clear_seen:
+                    self.clear_seen = self.cvt.clear_version
+                    msgs.append({"dtc_clear": self.cvt.clear_msg})
             except Exception as e:
                 print(f"display: {e}", flush=True); msgs = []
             for m in msgs:

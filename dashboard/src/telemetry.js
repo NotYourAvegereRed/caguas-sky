@@ -17,6 +17,7 @@ const WEAR_MAX = 200;              // your own limit for the CVT fluid wear bar 
 const LOCK_TEXT = { open: "Unlocked", engaging: "Engaging", releasing: "Releasing", locked: "Locked", coast: "Locked · coast" };
 
 let E = null, C = null, ALERTS = [];
+let CLEAR_MSG = "";                                  // result of the last CLEAR (hud-service: {dtc_clear})
 let DTCS = [], HIST = [], SCANS = 0;                 // codes from the last scan, code history, scans done (0 = not yet)
 let PWD = {}, pwTs = 0;                              // power fields (eng_nm, hp, ratio...), from whichever message is newer
 const PW = (k) => performance.now() - pwTs < 3000 ? PWD[k] ?? null : null;
@@ -130,8 +131,10 @@ VIEWS.codes = () => {
   const rows = [...HIST].sort((a, b) => String(b.last).localeCompare(String(a.last)));
   const tr = (d) => `<tr class="${now.has(key(d)) ? "now" : ""}${d.quiet ? " t-quiet" : ""}"><td class="n">${d.code}</td><td>${d.mod}${d.quiet ? " · common" : ""}</td><td>${d.first ?? "--"}</td><td>${d.last ?? "--"}</td><td class="n">${d.n ?? "--"}</td></tr>`;
   return `<div class="t-grid" style="grid-template-columns:1fr 2.2fr;height:450px">
-    <div class="t-col" style="--i:0"><h3>NOW · ECM TCM BCM</h3>${cur}</div>
-    <div class="t-col" style="--i:1"><h3>CODE HISTORY</h3><table class="t-ptab t-ctab"><tr><th>CODE</th><th>MODULE</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>STARTS</th></tr>
+    <div class="t-col" style="--i:0"><h3>NOW · ECM TCM BCM</h3>${cur}
+      <div class="t-clear"${DTCS.length ? "" : " hidden"} id="t-clear" role="button"><i></i><span>HOLD 2 S TO CLEAR</span></div>
+      <div class="t-mini" id="t-clearmsg">${CLEAR_MSG || (DTCS.length ? "engine off · key on · car stopped" : "")}</div></div>
+    <div class="t-col" style="--i:1"><h3>CODE HISTORY</h3><table class="t-ptab t-ctab"><tr><th>CODE</th><th>MODULE</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>SCANS</th></tr>
       ${rows.slice(0, HIST_ROWS).map(tr).join("") || `<tr><td colspan="5">nothing stored yet</td></tr>`}</table>
       ${rows.length > HIST_ROWS ? `<div class="t-mini">+${rows.length - HIST_ROWS} OLDER</div>` : ""}</div></div>`;
 };
@@ -316,6 +319,16 @@ function setAlerts(list) {
   }
   update();
 }
+// CLEAR: hold 2 s (the bar fills), let go early = nothing sent. hud-service only clears with the engine off.
+const HOLD_MS = 2000;
+let holdT = 0;
+const holdEnd = () => { clearTimeout(holdT); $("t-clear")?.classList.remove("hold"); };
+content.addEventListener("pointerdown", (e) => {
+  const b = e.target.closest("#t-clear"); if (!b) return;
+  b.classList.add("hold");
+  holdT = setTimeout(() => { holdEnd(); CLEAR_MSG = "CLEARING..."; $("t-clearmsg").textContent = CLEAR_MSG; window.hud?.send?.({ cmd: "dtc_clear" }); }, HOLD_MS);
+});
+for (const ev of ["pointerup", "pointercancel", "pointerleave", "pointermove"]) content.addEventListener(ev, (e) => { if (ev !== "pointermove" || !e.target.closest?.("#t-clear")) holdEnd(); });
 function setCodes(d) {
   DTCS = Array.isArray(d.dtcs) ? d.dtcs : []; HIST = Array.isArray(d.dtc_hist) ? d.dtc_hist : HIST; SCANS = d.dtc_scans ?? SCANS;
   setAlerts(ALERTS);
@@ -434,6 +447,7 @@ window.addEventListener("hud-cvt", (ev) => {
 window.addEventListener("hud-msg", (ev) => {
   const d = ev.detail;
   if ("eng" in d) { E = d.eng; if (E) { engTs = performance.now(); takePower(E); } update(); }
+  if ("dtc_clear" in d) { CLEAR_MSG = d.dtc_clear || ""; if (tab === "codes") render(); }
   if ("dtcs" in d) setCodes(d);
   if ("alerts" in d) setAlerts(d.alerts);
 });
