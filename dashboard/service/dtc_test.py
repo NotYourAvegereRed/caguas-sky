@@ -5,7 +5,7 @@ import cvt_reader as c
 assert c.dtc_code(0x04, 0x20) == "P0420" and c.dtc_code(0xD0, 0x00) == "U1000" and c.dtc_code(0x97, 0x1A) == "B171A"
 assert c.dtc_decode([0x59, 0x02, 0x0D, 0x04, 0x20, 0x00, 0x08, 0xD0, 0x00, 0x00, 0x08]) == ["P0420", "U1000"]
 assert c.dtc_decode([0x58, 0x01, 0x17, 0xF0, 0x60]) == ["P17F0"]
-assert c.dtc_decode([0x43, 0x01, 0x03, 0x00]) == ["P0300"]
+assert c.dtc_decode([0x43, 0x01, 0x03, 0x00]) == ["P0300"] and c.dtc_decode([0x47, 0x01, 0x01, 0x13]) == ["P0113"]
 assert c.dtc_decode([0x59, 0x02, 0x0D]) == [] and c.dtc_decode([0x58, 0x00]) == [] and c.dtc_decode([0x43, 0x00]) == []
 assert c.dtc_decode([0x7F, 0x19, 0x11]) is None and c.dtc_decode(None) is None
 # "response pending" is skipped, multi-frame is joined
@@ -35,12 +35,12 @@ class FakeElm:
         return out
 
 
-# ECM: refuses 19, answers 18 with one code. TCM: 19 with no codes. BCM: silent.
-elm = FakeElm({("7E0", "10C01"): "7E8 02 50 C0", ("7E0", "19020D"): "7E8 03 7F 19 11",
-               ("7E0", "1802FF00"): "7E8 05 58 01 04 20 60", ("7E1", "19020D"): "7E9 03 59 02 0D"})
+# like the Rogue with the MAF unplugged: ECM P0102 stored + P0102 / P0113 pending, TCM no codes, BCM silent
+elm = FakeElm({("7DF", "03"): "7E8 04 43 01 01 02", ("7DF", "07"): "7E8 06 47 02 01 02 01 13",
+               ("7E1", "19020D"): "7E9 03 59 02 0D"})
 r = c.CvtReader()
 assert r.dtcs() == [] and r._read_dtcs(elm) is True
-assert r.dtcs() == [{"mod": "ECM", "code": "P0420"}] and r.dtc_version == 1
+assert r.dtcs() == [{"mod": "ECM", "code": "P0102"}, {"mod": "ECM", "code": "P0113"}] and r.dtc_version == 1
 assert elm.sent[-1] == "ATAR" and not any(s.startswith(("14", "04")) for s in elm.sent)     # read-only
 # car asleep: nothing answers -> not counted as a scan
 r = c.CvtReader()
