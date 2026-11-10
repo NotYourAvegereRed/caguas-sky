@@ -32,7 +32,7 @@ RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
 Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
-voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
+voltage, every module awake) plus DTC_ECM_QUIET_S with no ECM reads, from the ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
 """
@@ -355,7 +355,10 @@ class Alerts:
 DTC_MODULES = [("ECM", "7DF", "7E8", ["03", "07"]),
                ("TCM", "7E1", "7E9", ["19020D"]),
                ("BCM", "745", "765", ["19020D"])]
-DTC_TRIES = 3                                  # scans with no module answering before giving up (per engine start)
+# Pi test 2026-11-10: inside the 10C0 session the ECM does not answer mode 03 / 07 (same as the old 010C), so the
+# loop stops its ECM reads for DTC_ECM_QUIET_S first (the session times out by itself), then scans.
+DTC_ECM_QUIET_S = 6.0                          # shortcut: 6 s assumes the usual 5 s session timeout, raise it if "DTC ECM 03: no answer" stays
+DTC_TRIES = 3                                  # scans with a module not answering before giving up (per engine start)
 DTC_SETTLE_S = 10.0                            # engine running this long before the scan
 
 
@@ -621,8 +624,9 @@ class CvtReader:
                 self.eng_version += 1
 
     def _read_dtcs(self, ser):
-        """Ask each module for its stored codes (read-only). True when at least one module answered."""
-        found, answered = [], False
+        """Ask each module for its stored codes (read-only). True when every module answered."""
+        found, answered = [], set()
+        self._send(ser, "ATAT0")                       # fixed reply timeout: the adaptive one is tuned to the fast TCM
         for name, tx, rx, reqs in DTC_MODULES:
             self._send(ser, "ATCRA" + rx)              # only this module's replies (the BCM is outside 7E8-7EF)
             self._header(ser, tx)
@@ -634,12 +638,13 @@ class CvtReader:
                       ", ".join(codes) or "no codes"), flush=True)
                 if codes is not None:
                     found += [{"mod": name, "code": c} for c in codes if {"mod": name, "code": c} not in found]
-                    answered = True
+                    answered.add(name)
         self._send(ser, "ATAR")                        # back to automatic receive
+        self._send(ser, "ATAT2")
         if answered:
             with self._lock:
                 self._dtcs, self.dtc_version = found, self.dtc_version + 1
-        return answered
+        return len(answered) == len(DTC_MODULES)
 
     def _run(self):
         while True:
@@ -666,9 +671,21 @@ class CvtReader:
         combined, tcc_missing = True, 0    # TCC current in the same request; own request if the TCM refuses
         last_fast = last_temp = last_wear = -1e9
         rounds, t_eng = 0, time.monotonic()
-        dtc_next = -1e9
+        dtc_next, dtc_quiet = -1e9, None           # dtc_quiet: ECM reads paused until then, then the code scan
         while True:
             now = time.monotonic()
+            run = self.alert._run_since            # trouble codes: once per engine start, after it settles
+            if dtc_quiet is None:
+                if run is not None and run != self._dtc_run and now - run >= DTC_SETTLE_S and now >= dtc_next:
+                    dtc_quiet = now + DTC_ECM_QUIET_S
+            elif now >= dtc_quiet:
+                if self._read_dtcs(ser) or self._dtc_left <= 1:
+                    self._dtc_run, self._dtc_left = run, DTC_TRIES
+                else:
+                    self._dtc_left -= 1
+                now = time.monotonic()
+                dtc_next, dtc_quiet = now + 10, None
+            ecm_ok = dtc_quiet is None             # no ECM requests while its session runs out
             view = self.view
             if self._view_changed:
                 self._view_changed = False
@@ -681,7 +698,9 @@ class CvtReader:
             self._pn_loop = self._pn_loop + 1 if pn else 0
 
             # ---- ECM: all engine DIDs on the engine/all tabs, otherwise only what the alerts need ----
-            if engine_tab:
+            if not ecm_ok:
+                pass
+            elif engine_tab:
                 raw = self._ecm(ser, ecm_round(self._eng_round))
                 self._eng_round += 1
                 if raw:
@@ -710,9 +729,9 @@ class CvtReader:
                 self._fluid_wear(ser)
 
             # ---- TCM: every loop on main / Dyno tab, every 2nd round on ALL ----
-            if (view == "all" and self._eng_round % ALL_CVT_EVERY == 0) or \
+            if (view == "all" and (not ecm_ok or self._eng_round % ALL_CVT_EVERY == 0)) or \
                (view in ("main", "dyno") and (not pn or self._pn_loop % PN_CVT_EVERY == 1)):
-                rpm = self._eng.get("rpm") if now - self._eng_ts < RPM_FRESH_S else None   # from the ECM reads
+                rpm = self._eng.get("rpm") if not ecm_ok or now - self._eng_ts < RPM_FRESH_S else None   # from the ECM reads
                 self._header(ser, TCM_HEADER)
                 raw = parse_multi(isotp_payload(self._send(ser, REQUEST if combined else REQUEST_NO_TCC, 1.0)))
                 if raw and combined and "1219" not in raw:
@@ -767,14 +786,6 @@ class CvtReader:
                     self.alert.clear()
             if got_any:
                 self._ans_ts = now
-                run = self.alert._run_since            # trouble codes: once per engine start, after it settles
-                if run is not None and run != self._dtc_run and now - run >= DTC_SETTLE_S and now >= dtc_next:
-                    if self._read_dtcs(ser) or self._dtc_left <= 1:
-                        self._dtc_run, self._dtc_left = run, DTC_TRIES
-                    else:
-                        self._dtc_left -= 1
-                    now = time.monotonic()
-                    dtc_next = now + 10
             self._write_status(now)
             if not got_any:
                 misses += 1

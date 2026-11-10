@@ -35,13 +35,17 @@ class FakeElm:
         return out
 
 
-# like the Rogue with the MAF unplugged: ECM P0102 stored + P0102 / P0113 pending, TCM no codes, BCM silent
-elm = FakeElm({("7DF", "03"): "7E8 04 43 01 01 02", ("7DF", "07"): "7E8 06 47 02 01 02 01 13",
-               ("7E1", "19020D"): "7E9 03 59 02 0D"})
+# like the Rogue with the MAF unplugged: ECM P0102 stored + P0102 / P0113 pending, TCM and BCM no codes
+ROGUE = {("7DF", "03"): "7E8 04 43 01 01 02", ("7DF", "07"): "7E8 06 47 02 01 02 01 13",
+         ("7E1", "19020D"): "7E9 03 59 02 0D", ("745", "19020D"): "765 03 59 02 0D"}
+elm = FakeElm(ROGUE)
 r = c.CvtReader()
 assert r.dtcs() == [] and r._read_dtcs(elm) is True
 assert r.dtcs() == [{"mod": "ECM", "code": "P0102"}, {"mod": "ECM", "code": "P0113"}] and r.dtc_version == 1
-assert elm.sent[-1] == "ATAR" and not any(s.startswith(("14", "04")) for s in elm.sent)     # read-only
+assert elm.sent[-2:] == ["ATAR", "ATAT2"] and not any(s.startswith(("14", "04")) for s in elm.sent)     # read-only
+# ECM silent (still in its session): the other codes are kept, but the scan is not done -> the loop retries
+r = c.CvtReader()
+assert r._read_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) is False and r.dtc_version == 1
 # car asleep: nothing answers -> not counted as a scan
 r = c.CvtReader()
 assert r._read_dtcs(FakeElm({})) is False and r.dtc_version == 0

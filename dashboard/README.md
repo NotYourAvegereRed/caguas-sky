@@ -149,7 +149,7 @@ Oil pressure on the same drive: lowest hot idle (oil 93 C) 1285 mV, plateau ~350
 the alert never fired and kept 285+ mV of margin at idle.
 
 ## Trouble codes after engine start: yellow badge + CODES tab (2026-11-10)
-cvt_reader.py reads the stored codes once per engine start, 10 s after the engine is running (`_read_dtcs`):
+cvt_reader.py reads the stored codes once per engine start, about 16 s after the engine is running (`_read_dtcs`):
 ECM by OBD2 mode 03 + 07 (stored + pending; it refuses 19), TCM (7E1 / 7E9) and BCM (745 / 765) by `19 02 0D`
 (UDS: failed now, pending or confirmed). Checked with tools/dtc_probe.py on the car (MAF unplugged -> P0102).
 Read-only, never a clear. The scan freezes the gauges for about 1-2 s.
@@ -159,7 +159,9 @@ Read-only, never a clear. The scan freezes the gauges for about 1-2 s.
 - Telemetry tabs are now ALL / DYNO / CODES (ENGINE and CVT are gone, their polling too). CODES: left = the last
   scan, right = code history (first / last time seen, on how many engine starts), kept in
   `~/.local/share/hud/dtcs.json`. Opening the telemetry page shows the codes in a yellow banner for 6 s.
-- Not yet tested from the Pi: the ECM is inside its 10C0 session when the scan runs. Check
+- Pi test 2026-11-10: TCM and BCM answer; the ECM does not answer mode 03 / 07 inside its 10C0 session. So the
+  reader stops its ECM reads for 6 s before the scan (the session runs out; gauges keep moving, rpm holds its last
+  value) and retries up to 3 times if a module stays silent. Scan = about 16 s after the engine starts. Check
   `journalctl -u hud-service | grep DTC` (one line per module and request: codes, "no codes", "no answer" or the refusal).
 - Preview: `?demo=1&alert=dtc`. Self-check: `python3 dashboard/service/dtc_test.py`.
 
