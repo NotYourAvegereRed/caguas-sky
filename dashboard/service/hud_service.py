@@ -10,6 +10,7 @@ HUD page over a local WebSocket. Also receives play/pause/next/prev from the tou
 media = {status, title, artist, album, position_ms, duration_ms, codec, art}
   art = data URI of the album cover from the Spotify Web API ("currently playing"), cached on disk.
   null while it is not found / not playing from Spotify / no internet (the page shows its placeholder).
+  The once-a-second pushes leave "art" OUT while the cover is the same (the page keeps the one it has).
 
 CVT data (cvt_reader.py, vLinker FS on USB, read-only) is pushed separately, ~12 times a second:
     server -> page: {"cvt": {p_primary_target_mpa, p_primary_actual_mpa, p_secondary_target_mpa,
@@ -19,13 +20,17 @@ CVT data (cvt_reader.py, vLinker FS on USB, read-only) is pushed separately, ~12
 null = no adapter / car off. Kept apart from "media" so the cover image is not resent 12x a second.
 
 Telemetry window (swipe left on the main screen):
-    page -> server: {"cmd": "view", "view": "main" | "all" | "engine" | "cvt" | "dyno"}   what the screen shows,
+    page -> server: {"cmd": "view", "view": "main" | "all" | "dyno" | "codes" | "dsp"}   what the screen shows,
                     so cvt_reader only polls what is needed (main = CVT + background alert reads)
     server -> page: {"eng": {rpm, coolant_c, oil_c, iat_c, fuel_c, eop_mv, eop_psi, eop_warn_mv, eop_crit_mv,
                              maf_gs, load_pct, timing_deg, stft_pct, ltft_pct, inj_ms, ecm_v, exhcam_deg,
                              vtc_pct, thr1_v, thr2_v, ped1_v, ped2_v, af_v, ac_v, fluid_wear, eng_hz, cvt_hz} | null}
-                    {"alerts": [{id: "oil_pressure", mv, psi, rpm, min_mv} | {id: "coolant"|"oil_temp", value}]}
-                    {"dtcs": [{mod: "ECM"|"TCM"|"BCM", code: "P0420"}]}   trouble codes, read once at startup
+                    {"alerts": [{id: "oil_pressure", mv, psi, rpm, min_mv} |
+                                {id: "coolant"|"oil_temp"|"cvt_temp"|"battery", value}]}
+                    {"dtcs": [{mod: "ECM"|"TCM"|"BCM", code: "P0420", quiet}], "dtc_scans": n,
+                     "dtc_hist": [{mod, code, quiet, first, last, n}]}   trouble codes, read once per engine start.
+                     quiet = in DTC_QUIET (common, harmless: no yellow badge). History in ~/.local/share/hud/dtcs.json
+                     (HUD_DTC_FILE): first / last time seen and on how many engine starts.
     On the main screen only eop_mv/rpm (1 s) and coolant/oil temp (7 s) are fresh; the rest is old or missing.
 
 Screen (real backlight: RP2040 firmware v0.9 PWMs the Santek's backlight driver enable):
@@ -116,6 +121,8 @@ BL_FILE = os.environ.get("HUD_BL_FILE", "/dev/shm/caguas-bl")        # read by r
 CAR_FILE = os.environ.get("HUD_CAR_FILE", "/dev/shm/caguas-car")     # RP2040 state, written by rp2040-link
 BYE_FILE = os.environ.get("HUD_BYE_FILE", "/dev/shm/caguas-bye")     # written by /usr/local/bin/caguas-bye
 TRIPS_FILE = os.path.expanduser(os.environ.get("HUD_TRIPS_FILE", "~/.local/share/hud/trips.csv"))
+DTC_FILE = os.path.expanduser(os.environ.get("HUD_DTC_FILE", "~/.local/share/hud/dtcs.json"))
+DTC_QUIET = {"U1000", "U1001"}   # CAN communication history codes: common and harmless -> code history only, no badge
 NO_CAR_GRACE_S = 25.0     # no RP2040 state after this long (bench): show the screen anyway
 WELCOME_WAIT_S = 20.0
 PARK_BYE_DELAY_S = 1.5    # door opened (PARK): let the music fade first
@@ -396,6 +403,36 @@ def save_tone(d):
     with open(tmp, "w") as f:
         json.dump(d, f)
     os.replace(tmp, DSP_TONE_FILE)
+
+
+def load_dtc_hist():
+    try:
+        with open(DTC_FILE) as f:
+            h = json.load(f)
+        return [e for e in h if isinstance(e, dict) and e.get("mod") and e.get("code")] if isinstance(h, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def log_dtcs(hist, found):
+    """Add one scan to the code history (first / last time seen, number of engine starts) and save it."""
+    if not found:
+        return
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    for d in found:
+        e = next((h for h in hist if (h["mod"], h["code"]) == (d["mod"], d["code"])), None)
+        if e is None:
+            e = {"mod": d["mod"], "code": d["code"], "first": stamp, "n": 0}
+            hist.append(e)
+        e["last"], e["n"] = stamp, int(e.get("n") or 0) + 1
+    try:
+        os.makedirs(os.path.dirname(DTC_FILE), exist_ok=True)
+        tmp = DTC_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(hist, f, indent=1)
+        os.replace(tmp, DTC_FILE)
+    except OSError as e:
+        print(f"could not write {DTC_FILE}: {e}", flush=True)
 
 
 class DspVolume:
@@ -750,6 +787,8 @@ class Hud:
         self.art_key = None         # key of the track the current art belongs to
         self.art_uri = None
         self.art_tries = {}         # key -> (attempts, next_try_monotonic)
+        self.art_sent = False       # cover in the last broadcast (False = none sent yet)
+        self.dtc_hist, self.dtc_seen = load_dtc_hist(), 0
         self.cvt = CvtReader()
         self.vol = DspVolume(DSP_WS)
         self.view = "main"            # what the page shows (the DSP page polls levels only while open)
@@ -791,9 +830,17 @@ class Hud:
             e.update(eng_hz=round(self.cvt.eng_hz, 1), cvt_hz=round(self.cvt.hz, 1))
         return e
 
-    def snapshot(self):
-        return json.dumps({"media": self.media(), "cvt": self.cvt.latest(), "vol": self.vol.state(),
-                           "eng": self.eng(), "alerts": self.cvt.alerts(), "dtcs": self.cvt.dtcs(), "welcomed": self.display.welcomed,
+    def dtc_state(self):
+        q = lambda codes: [dict(d, quiet=d["code"] in DTC_QUIET) for d in codes]
+        return {"dtcs": q(self.cvt.dtcs()), "dtc_hist": q(self.dtc_hist), "dtc_scans": self.cvt.dtc_version}
+
+    def snapshot(self, art=True):
+        """art=False: leave the cover out (it has not changed; it is 50-100 kB of base64)."""
+        media = self.media()
+        if media and not art:
+            del media["art"]
+        return json.dumps({"media": media, "cvt": self.cvt.latest(), "vol": self.vol.state(),
+                           "eng": self.eng(), "alerts": self.cvt.alerts(), **self.dtc_state(), "welcomed": self.display.welcomed,
                            "car": self.display.car, "trip": self.trip.last, "units": self.display.cfg["units"]})
 
     # ---------- state updates ----------
@@ -973,9 +1020,9 @@ class Hud:
         await self.find_players()
 
     async def command(self, cmd, msg=None):
-        if cmd == "view":                      # {"cmd": "view", "view": "main"|"all"|"engine"|"cvt"|"dyno"|"dsp"}
+        if cmd == "view":                      # {"cmd": "view", "view": "main"|"all"|"dyno"|"codes"|"dsp"}
             self.view = (msg or {}).get("view")
-            self.cvt.set_view("main" if self.view == "dsp" else self.view)    # DSP page: OBD reads like the main screen
+            self.cvt.set_view(self.view if self.view in ("all", "dyno") else "main")   # DSP / codes: OBD reads like the main screen
             self.dsp_dirty.set()
             return
         if cmd == "dsp_preset":                # {"cmd": "dsp_preset", "file": "night.yml"}: only files that are presets
@@ -1053,7 +1100,8 @@ class Hud:
                 pass
             self.dirty.clear()
             if self.clients:
-                msg = self.snapshot()
+                msg = self.snapshot(art=self.art_uri != self.art_sent)
+                self.art_sent = self.art_uri
                 await asyncio.gather(*(self._send(c, msg) for c in list(self.clients)))
             await asyncio.sleep(0.15)   # coalesce bursts of signals
 
@@ -1134,7 +1182,7 @@ class Hud:
 
     async def eng_loop(self):
         """Push engine data when it changes (rate set by the view), alerts as soon as they change."""
-        last_v, last_a, last_d = -1, -1, 0
+        last_v, last_a = -1, -1
         while True:
             await asyncio.sleep(0.1)
             if not self.clients:
@@ -1146,9 +1194,6 @@ class Hud:
             if self.cvt.alert.version != last_a:
                 last_a = self.cvt.alert.version
                 msgs.append(json.dumps({"alerts": self.cvt.alerts()}))
-            if self.cvt.dtc_version != last_d:
-                last_d = self.cvt.dtc_version
-                msgs.append(json.dumps({"dtcs": self.cvt.dtcs()}))
             for msg in msgs:
                 await asyncio.gather(*(self._send(c, msg) for c in list(self.clients)))
 
@@ -1166,6 +1211,10 @@ class Hud:
                     msgs.append({"car": car})
                 if summ:
                     msgs.append({"trip": summ, "units": self.display.cfg["units"]})
+                if self.cvt.dtc_version != self.dtc_seen:          # a scan finished: history, then the page
+                    self.dtc_seen = self.cvt.dtc_version
+                    log_dtcs(self.dtc_hist, self.cvt.dtcs())
+                    msgs.append(self.dtc_state())
             except Exception as e:
                 print(f"display: {e}", flush=True); msgs = []
             for m in msgs:

@@ -13,10 +13,11 @@ and the 010C never answered while the ECM was in the 10C0 session anyway.
 Telemetry window (2026-10-27): what is polled depends on the screen the page is showing
 (set_view, sent by the page):
   main    CVT at full speed + in the background oil pressure (EOP) + RPM every 1 s and
-          coolant + oil temp every 7 s, only for the alerts
-  cvt     same as main + CVT fluid wear (2103) once a minute
-  engine  engine DIDs in rounds (TIER_1 every round, TIER_4 / TIER_8 every 4th / 8th) + CVT once a second + fluid wear
-  all     same engine rounds + the CVT request every 2nd round + fluid wear
+          coolant + oil temp + control module voltage every 7 s, only for the alerts
+  dyno    same as main (rpm every 0.5 s) + torque / power every 2nd loop + CVT fluid wear (2103) once a minute
+  all     engine DIDs in rounds (TIER_1 every round, TIER_4 / TIER_8 every 4th / 8th) + the CVT request
+          every 2nd round + fluid wear
+(the ENGINE and CVT tabs are gone since 2026-11-10; the codes tab and the DSP page poll like main)
 The ECM only answers mode 22 inside the Nissan diagnostic session (10C0, otherwise 7F 22 80),
 so 10C0 is re-sent every SESSION_EVERY s while ECM data is read, and again on 7F replies.
 ECM DIDs found 2026-10-27 from a Bluetooth snoop of Car Scanner, checked against its values.
@@ -30,8 +31,8 @@ rp2040-link reads it and sends ENG 0/1/2. If this reader stops (adapter unplugge
 RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
-Trouble codes (2026-11-10): read ONCE per service start, right after the car first answers, from the
-ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
+Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
+voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
 """
@@ -166,10 +167,9 @@ class Lockup:
 ECM_REPLY = "7E8"
 SESSION_EVERY = 2.5               # s between 10C0 keep-alives while ECM data is read
 ALERT_FAST_S = 1.0                # oil pressure + rpm on the main screen (alerts; also the CVT rpm)
-ALERT_FAST_CVT_S = 0.5            # same on the CVT tab, so its rpm bar moves a bit faster
+ALERT_FAST_CVT_S = 0.5            # same on the Dyno tab, so its rpm moves a bit faster
 RPM_FRESH_S = 3.0                 # older than this: no rpm in the CVT data
-ALERT_TEMP_S = 7.0                # coolant + oil temp on the main screen (alerts)
-CVT_SLOW_S = 1.0                  # CVT request period on the engine tab
+ALERT_TEMP_S = 7.0                # coolant + oil temp + voltage on the main screen (alerts)
 WEAR_EVERY = 60.0                 # s between CVT fluid wear reads (it changes very slowly)
 ENG_STALE_S = 10.0                # no ECM answer for this long -> engine data null, alerts cleared
 ECM_CHUNK = 8                     # DIDs per multi-DID request
@@ -215,8 +215,7 @@ TIER_1 = [d for d in ECM_PIDS if d not in TIER_4 and d not in TIER_8]   # rpm, o
 # No faster route: the ECM refuses even 2 DIDs per request (7F 22 12), and its service 21 blocks (01-05, A0, A1)
 # never changed while revving (not live data).
 DYNO_POWER_EVERY = 2             # Dyno tab: torque / power every 2nd CVT loop (hp / Nm move faster, speed still ~fast)
-CVT_TAB_POWER_EVERY = 4           # CVT tab: torque / ratio request every 4th CVT loop (keeps the CVT near full speed)
-ALL_CVT_EVERY = 2                 # ALL tab: CVT request every 2nd round (it is an overview; CVT tab = full speed)
+ALL_CVT_EVERY = 2                 # ALL tab: CVT request every 2nd round (it is an overview)
 
 
 def ecm_round(r):
@@ -224,7 +223,7 @@ def ecm_round(r):
     return (TIER_1 + [d for i, d in enumerate(TIER_4) if i % 4 == r % 4]
                    + [d for i, d in enumerate(TIER_8) if i % 8 == r % 8])
 FAST_DIDS = ["1278", "1201"]      # oil pressure + rpm
-TEMP_DIDS = ["1101", "111F"]      # coolant + oil temp
+TEMP_DIDS = ["1101", "111F", "1103"]      # coolant + oil temp + control module voltage
 
 
 # oil pressure: psi = (V - 0.77) * 20.7. Zero = 770 mV, read twice with ignition ON / engine OFF
@@ -244,6 +243,9 @@ def mv_from_psi(psi):
 class Alerts:
     """Dangerous values -> alerts for the page (red badge on the main screen, banner on the telemetry one).
        coolant >= 110 C (clears below 108), oil temp >= 130 C (clears below 127)
+       CVT fluid >= 100 C (clears below 97; the hottest seen so far is 93 C for 1-2 minutes)
+       voltage (ECM) with the engine running 10 s: below 11.7 V twice in a row (smart charging sits at 12 V;
+           clears at 11.8) or 15.0 V and up (clears below 14.8)
        oil pressure below a minimum that grows with rpm:
            warn (yellow tile only) = max(1200 mV, 9 psi per 1000 rpm), alert = max(1000 mV, 6 psi per 1000 rpm),
            both stop growing at 4000 rpm (alert 24 psi = 1930 mV, warn 36 psi = 2510 mV).
@@ -252,6 +254,8 @@ class Alerts:
          - 2 low readings in a row to fire, 3 good ones to clear."""
     COOLANT_ON, COOLANT_OFF = 110, 108
     OILT_ON, OILT_OFF = 130, 127
+    CVT_ON, CVT_OFF = 100, 97
+    BATT_LOW, BATT_LOW_OFF, BATT_HIGH, BATT_HIGH_OFF = 11.7, 11.8, 15.0, 14.8
     RUN_MIN_RPM, SETTLE_S, LAG_S = 400, 10.0, 2.0
 
     def __init__(self):
@@ -259,7 +263,7 @@ class Alerts:
         self.version = 0
         self._rpm = collections.deque(maxlen=40)
         self._run_since = None
-        self._low = self._ok = 0
+        self._low = self._ok = self._batt = 0
 
     @staticmethod
     def eop_limits(rpm):
@@ -279,7 +283,7 @@ class Alerts:
     def clear(self):
         if self.active:
             self.active, self.version = {}, self.version + 1
-        self._run_since, self._low, self._ok = None, 0, 0
+        self._run_since, self._low, self._ok, self._batt = None, 0, 0, 0
 
     def rpm(self, rpm, now):
         self._rpm.append((now, rpm))
@@ -288,6 +292,8 @@ class Alerts:
         else:
             self._run_since, self._low, self._ok = None, 0, 0
             self._set("oil_pressure", None)    # engine off: no pressure expected
+            self._set("battery", None)         # engine off: not charging is normal
+            self._batt = 0
 
     def ref_rpm(self, now):
         """lower of the rpm now and the rpm ~LAG_S ago"""
@@ -307,6 +313,20 @@ class Alerts:
             hot = oil_c >= self.OILT_ON or (on and oil_c >= self.OILT_OFF)
             self._set("oil_temp", {"id": "oil_temp", "value": oil_c} if hot else None)
 
+    def cvt_temp(self, c):
+        hot = c >= self.CVT_ON or ("cvt_temp" in self.active and c >= self.CVT_OFF)
+        self._set("cvt_temp", {"id": "cvt_temp", "value": c} if hot else None)
+
+    def battery(self, v, now):
+        if self._run_since is None or now - self._run_since < self.SETTLE_S:
+            return
+        on = "battery" in self.active
+        low = v < self.BATT_LOW or (on and v < self.BATT_LOW_OFF)
+        self._batt = self._batt + 1 if low else 0
+        bad = self._batt >= 2 or v >= self.BATT_HIGH or (on and v >= self.BATT_HIGH_OFF)
+        if bad or not low:                      # one low reading alone: wait for the next
+            self._set("battery", {"id": "battery", "value": v} if bad else None)
+
     def oil_pressure(self, mv, now):
         rpm = self.ref_rpm(now)
         if rpm is None or self._run_since is None or now - self._run_since < self.SETTLE_S:
@@ -323,7 +343,7 @@ class Alerts:
             self._set("oil_pressure", None)
 
     def list(self):
-        order = ["oil_pressure", "coolant", "oil_temp"]          # most urgent first
+        order = ["oil_pressure", "coolant", "oil_temp", "cvt_temp", "battery"]          # most urgent first
         return [self.active[k] for k in order if k in self.active]
 
 
@@ -334,7 +354,8 @@ class Alerts:
 # on the first start in the car and delete the requests that never answer.
 DTC_MODULES = [("ECM", "7E0", "7E8"), ("TCM", "7E1", "7E9"), ("BCM", "745", "765")]
 DTC_REQUESTS = ["19020D", "1802FF00"]          # UDS, then KWP2000 (Nissan)
-DTC_TRIES = 3                                  # scans with no module answering before giving up
+DTC_TRIES = 3                                  # scans with no module answering before giving up (per engine start)
+DTC_SETTLE_S = 10.0                            # engine running this long before the scan
 
 
 def dtc_code(hi, lo):
@@ -442,7 +463,7 @@ class CvtReader:
         self._eng_round = 0
         self._power, self._power_ts, self._tcm_loops = {}, 0.0, 0
         self._ans_ts, self._rpm_ts, self._status_ts, self._pn_loop = -1e9, -1e9, -1e9, 0
-        self._dtcs, self.dtc_version, self._dtc_left = [], 0, DTC_TRIES
+        self._dtcs, self.dtc_version, self._dtc_left, self._dtc_run = [], 0, DTC_TRIES, None
 
     def _write_status(self, now):
         """engine status for rp2040-link (/dev/shm/caguas-engine), at most every ENGINE_WRITE_S"""
@@ -461,7 +482,7 @@ class CvtReader:
             self._warn("status", f"CVT reader: can't write {ENGINE_FILE}: {e}")
 
     def set_view(self, view):
-        if view in ("main", "all", "engine", "cvt", "dyno") and view != self.view:
+        if view in ("main", "all", "dyno") and view != self.view:
             self.view, self._view_changed = view, True
 
     def latest_eng(self):
@@ -476,7 +497,7 @@ class CvtReader:
             return self.alert.list()
 
     def dtcs(self):
-        """[{"mod": "ECM", "code": "P0420"}, ...] from the startup scan ([] = none, or not scanned yet)."""
+        """[{"mod": "ECM", "code": "P0420"}, ...] from the last scan ([] = none, or not scanned yet: dtc_version 0)."""
         with self._lock:
             return list(self._dtcs)
 
@@ -577,6 +598,8 @@ class CvtReader:
                 self.alert.temps(d.get("coolant_c"), d.get("oil_c"))
             if "eop_mv" in d:
                 self.alert.oil_pressure(d["eop_mv"], now)
+            if "ecm_v" in d:
+                self.alert.battery(d["ecm_v"], now)
             rpm = self.alert.ref_rpm(now)
             if rpm is not None:
                 w, c = Alerts.eop_limits(rpm)
@@ -646,7 +669,7 @@ class CvtReader:
         frame, rpm, misses = 0, None, 0
         n, t_hz = 0, time.monotonic()
         combined, tcc_missing = True, 0    # TCC current in the same request; own request if the TCM refuses
-        last_cvt = last_fast = last_temp = last_wear = -1e9
+        last_fast = last_temp = last_wear = -1e9
         rounds, t_eng = 0, time.monotonic()
         dtc_next = -1e9
         while True:
@@ -655,7 +678,7 @@ class CvtReader:
             if self._view_changed:
                 self._view_changed = False
                 last_wear = -1e9 if view != "main" else last_wear
-            engine_tab = view in ("engine", "all")
+            engine_tab = view == "all"
             got_any = False
             with self._lock:
                 gear = self._data.get("gear") if self._data and now - self._ts < STALE_S else None
@@ -674,7 +697,7 @@ class CvtReader:
                 want = []
                 if pn:
                     want.append("1201")            # P / N: rpm every loop (engine start / stop)
-                if now - last_fast >= (ALERT_FAST_CVT_S if view in ("cvt", "dyno") else ALERT_FAST_S):
+                if now - last_fast >= (ALERT_FAST_CVT_S if view == "dyno" else ALERT_FAST_S):
                     want += [d for d in FAST_DIDS if d not in want]
                     last_fast = now
                 if now - last_temp >= ALERT_TEMP_S:
@@ -691,11 +714,9 @@ class CvtReader:
                 last_wear = now
                 self._fluid_wear(ser)
 
-            # ---- TCM: every loop on main / CVT tab, every 2nd round on ALL, once a second on ENGINE ----
-            if (view == "engine" and now - last_cvt >= CVT_SLOW_S) or \
-               (view == "all" and self._eng_round % ALL_CVT_EVERY == 0) or \
-               (view in ("main", "cvt", "dyno") and (not pn or self._pn_loop % PN_CVT_EVERY == 1)):
-                last_cvt = now
+            # ---- TCM: every loop on main / Dyno tab, every 2nd round on ALL ----
+            if (view == "all" and self._eng_round % ALL_CVT_EVERY == 0) or \
+               (view in ("main", "dyno") and (not pn or self._pn_loop % PN_CVT_EVERY == 1)):
                 rpm = self._eng.get("rpm") if now - self._eng_ts < RPM_FRESH_S else None   # from the ECM reads
                 self._header(ser, TCM_HEADER)
                 raw = parse_multi(isotp_payload(self._send(ser, REQUEST if combined else REQUEST_NO_TCC, 1.0)))
@@ -718,13 +739,14 @@ class CvtReader:
                                                       d.get("lock_status"), now)
                     with self._lock:
                         self._data, self._ts = d, now
+                        if d.get("temp_c") is not None:
+                            self.alert.cvt_temp(d["temp_c"])
                     n += 1
 
-            # ---- power (torque / ratio / pulleys): telemetry pages only; ALL / ENGINE every 2nd round, CVT tab every 4th ----
-            if view in ("cvt", "dyno"):
+            # ---- power (torque / ratio / pulleys): telemetry pages only; ALL every 2nd round, Dyno every 2nd loop ----
+            if view == "dyno":
                 self._tcm_loops += 1
-            power_due = (view in ("all", "engine") and self._eng_round % 2 == 0) or \
-                        (view == "cvt" and self._tcm_loops % CVT_TAB_POWER_EVERY == 0) or \
+            power_due = (view == "all" and self._eng_round % 2 == 0) or \
                         (view == "dyno" and self._tcm_loops % DYNO_POWER_EVERY == 0)
             if power_due:
                 self._header(ser, TCM_HEADER)
@@ -750,8 +772,12 @@ class CvtReader:
                     self.alert.clear()
             if got_any:
                 self._ans_ts = now
-                if self._dtc_left and now >= dtc_next:     # car awake: trouble codes, once per service start
-                    self._dtc_left = 0 if self._read_dtcs(ser) else self._dtc_left - 1
+                run = self.alert._run_since            # trouble codes: once per engine start, after it settles
+                if run is not None and run != self._dtc_run and now - run >= DTC_SETTLE_S and now >= dtc_next:
+                    if self._read_dtcs(ser) or self._dtc_left <= 1:
+                        self._dtc_run, self._dtc_left = run, DTC_TRIES
+                    else:
+                        self._dtc_left -= 1
                     now = time.monotonic()
                     dtc_next = now + 10
             self._write_status(now)

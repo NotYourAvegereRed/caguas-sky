@@ -46,3 +46,35 @@ assert elm.sent[-1] == "ATAR" and not any(s.startswith(("14", "04")) for s in el
 r = c.CvtReader()
 assert r._read_dtcs(FakeElm({})) is False and r.dtc_version == 0
 print("dtc ok")
+
+# ---- alerts: CVT fluid 100 C, voltage 11.7 / 11.8 V ----
+a = c.Alerts()
+a.cvt_temp(99); assert not a.list()
+a.cvt_temp(100); assert a.list()[0]["id"] == "cvt_temp"
+a.cvt_temp(98); assert a.list()                       # holds until below 97
+a.cvt_temp(96); assert not a.list()
+a.rpm(700, 0.0)
+a.battery(11.6, 5.0); a.battery(11.6, 9.0); assert not a.list()          # engine running < 10 s
+a.battery(11.68, 12.0); assert not a.list()                             # one low reading is not enough
+a.battery(12.0, 19.0); a.battery(11.68, 26.0); assert not a.list()      # smart charging at 12 V, single dips
+a.battery(11.68, 33.0); assert a.list()[0] == {"id": "battery", "value": 11.68}
+a.battery(11.76, 40.0); assert a.list()                                 # clears at 11.8, not before
+a.battery(11.84, 47.0); assert not a.list()
+a.battery(15.04, 54.0); assert a.list(); a.battery(14.88, 61.0); assert a.list(); a.battery(14.72, 68.0); assert not a.list()
+a.battery(11.6, 75.0); a.battery(11.6, 82.0); assert a.list()
+a.rpm(0, 83.0); assert not a.list()                                     # engine off: not charging is normal
+
+# ---- code history (hud_service; needs its imports, so this part only runs where they are installed) ----
+import os, tempfile
+os.environ["HUD_DTC_FILE"] = os.path.join(tempfile.mkdtemp(), "hud", "dtcs.json")
+try:
+    import hud_service as h
+except ImportError as e:
+    print("history check skipped:", e)
+else:
+    hist = h.load_dtc_hist()
+    assert hist == []
+    h.log_dtcs(hist, [{"mod": "ECM", "code": "P0420"}]); h.log_dtcs(hist, [])
+    h.log_dtcs(hist, [{"mod": "ECM", "code": "P0420"}, {"mod": "BCM", "code": "U1000"}])
+    assert [(e["code"], e["n"]) for e in hist] == [("P0420", 2), ("U1000", 1)] and h.load_dtc_hist() == hist
+print("alerts + history ok")

@@ -5,7 +5,7 @@
 //              temp_c, lockup: "open"|"engaging"|"releasing"|"locked"|"coast", slip_rpm,
 //              tcc_a (torque converter clutch solenoid current, A) },
 //     media: { status: "playing"|"paused"|"stopped", title, artist, art, position_ms, duration_ms, codec } }
-//   media.art = image URL or data URI. Missing art -> placeholder.
+//   media.art = image URL or data URI. null -> placeholder. No "art" key at all = same cover as before.
 //   vol = { db, mute, min_db, max_db } (CamillaDSP main volume) | null; page sends {cmd:"vol", db}.
 // Live source: hud-service on ws://<host>:8766 pushes {"media": ...} about once a second and
 // {"cvt": ...} ~12 times a second (vLinker, read-only; null = no adapter / car off),
@@ -34,8 +34,8 @@ const TEMP_STOPS = [              // °C
   [20, BLUE], [45, BLUE],         // (placeholder) cold = blue
   [60, GREEN],                    // (placeholder) normal = green
   [90, GREEN],                    // 90: starts turning orange
-  [95, YELLOW], [100, ORANGE],
-  [110, RED],                     // 110: red
+  [95, YELLOW], [98, ORANGE],
+  [100, RED],                     // 100: red (the alert fires here)
   [130, VOLCANIC]                 // 130: limit, volcanic red
 ];
 
@@ -381,7 +381,7 @@ function setMedia(m) {
   const playing = m && m.status === "playing";
   $("b-play").innerHTML = playing ? ICON.pause : ICON.play;
   $("tag-codec").textContent = m?.codec ? `BT · ${m.codec}` : "BT";
-  const art = m?.art || PLACEHOLDER_ART;
+  const art = m && !("art" in m) && lastArt ? lastArt : m?.art || PLACEHOLDER_ART;
   if (art !== lastArt) { artImg.src = art; lastArt = art; }
   $("np-title").textContent = m?.title || "Nothing playing";
   $("np-artist").textContent = m?.title ? (m.artist || "") : "";

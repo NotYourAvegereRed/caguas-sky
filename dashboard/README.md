@@ -148,13 +148,28 @@ CVT tab (gear ratio tile). Read only off the main screen: ALL / ENGINE every 2nd
 Oil pressure on the same drive: lowest hot idle (oil 93 C) 1285 mV, plateau ~3500 mV (~57 psi) above 3500 rpm;
 the alert never fired and kept 285+ mV of margin at idle.
 
-## Trouble codes at startup: yellow badge (2026-11-10)
-cvt_reader.py reads the stored codes ONCE per service start, right after the car first answers (`_read_dtcs`):
+## Trouble codes after engine start: yellow badge + CODES tab (2026-11-10)
+cvt_reader.py reads the stored codes once per engine start, 10 s after the engine is running (`_read_dtcs`):
 ECM (7E0 / 7E8), TCM (7E1 / 7E9), BCM (745 / 765). Per module the first request that answers wins: `19 02 0D`
 (UDS: failed now, pending or confirmed), then `18 02 FF 00` (KWP, Nissan), and for the ECM also OBD2 mode 03.
-Read-only, never a clear. The scan freezes the gauges for about 1-2 s, once.
-- Page gets `{"dtcs": [{mod, code}]}`. Any code = the warning badge in YELLOW, no pulse (a red alert still wins).
-  Tap it: the telemetry page shows the codes in a yellow banner for 6 s (every time the page opens).
-- Not yet tested on the car: the IDs and services are the ones in tools/dtc_probe.py. On the first start check
+Read-only, never a clear. The scan freezes the gauges for about 1-2 s.
+- Page gets `{"dtcs": [{mod, code, quiet}], "dtc_hist": [...], "dtc_scans": n}`. A code = the warning badge in
+  YELLOW, no pulse (a red alert still wins). Codes in `DTC_QUIET` (hud_service.py: U1000, U1001) are "common":
+  no badge, no banner, only on the CODES tab. Add the ones your car always stores there.
+- Telemetry tabs are now ALL / DYNO / CODES (ENGINE and CVT are gone, their polling too). CODES: left = the last
+  scan, right = code history (first / last time seen, on how many engine starts), kept in
+  `~/.local/share/hud/dtcs.json`. Opening the telemetry page shows the codes in a yellow banner for 6 s.
+- Not yet tested on the car: the IDs and services are the ones in tools/dtc_probe.py. After the first start check
   `journalctl -u hud-service | grep DTC` (one line per module and request: codes, "no codes", "no answer" or the refusal).
 - Preview: `?demo=1&alert=dtc`. Self-check: `python3 dashboard/service/dtc_test.py`.
+
+## New alerts: CVT fluid, battery (2026-11-10)
+- CVT fluid >= 100 C (clears below 97). The main gauge and the telemetry bar are red from 100 too (was 110).
+- Voltage (ECM 1103, now also read every 7 s on the main screen): below 11.7 V on two readings in a row with the
+  engine running 10 s (clears at 11.8; smart charging sits at 12 V), or 15.0 V and up (clears below 14.8).
+  The DID steps 0.08 V, so "below 11.7" means a reading of 11.68 or less.
+- `?demo=1&alert=cvt|battery`.
+
+## Cover art sent only when it changes (2026-11-10)
+The once-a-second media push no longer carries the cover (50-100 kB of base64): hud_service leaves `art` out while
+it is the same, hud.js keeps the cover it has. A new connection still gets it in its first message.
