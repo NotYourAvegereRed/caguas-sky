@@ -56,6 +56,7 @@ const SMOOTH_TAU = 0.09;   // s; bigger = smoother but slower needles, 0 = no sm
 const PEAK_MIN_MPA = 2.25;   // gold peak line only when the held pressure peak is above this
 const PEAK_HOLD_MS = 5500;   // peak holds this long, then fades
 const PEAK_FADE_MS = 600;    // fade time, then it resets to the live value
+const PEAK_GAP = 0.02;       // value this far below the peak (fraction of the scale) = peak line fully visible
 
 // Peak hold: jumps to any new max at once, holds holdMs, fades over PEAK_FADE_MS, then restarts from the live value.
 // holdMs = Infinity: holds until reset() (fluid temp: the whole drive). A data dropout (null) keeps the peak.
@@ -207,7 +208,10 @@ function drawMarks(o, now) {
   const p = o.peak?.update(o.raw, now);
   if (o.pkEl) {
     const show = !anim && p && (cfg.peak === "dim" || p.v > PEAK_MIN_MPA);
-    set("_pO", o.pkEl, "opacity", show ? p.a.toFixed(2) : "0");
+    // the line only shows once the value has dropped away from the peak (fades in over PEAK_GAP of the scale):
+    // while the value climbs the peak is the newest sample, and drawing it made it step ahead of the eased needle
+    const away = show ? Math.max(0, Math.min(1, (p.v - o.raw) / ((cfg.max - cfg.min) * PEAK_GAP))) : 0;
+    set("_pO", o.pkEl, "opacity", show ? (p.a * away).toFixed(2) : "0");
     if (show) set("_pR", o.pkEl, "transform", `rotate(${angleOf(cfg, p.v).toFixed(1)} 60 60)`);
   }
   const sub = o.shown == null ? ""
