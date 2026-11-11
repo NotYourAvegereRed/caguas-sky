@@ -22,7 +22,7 @@ body.pg-drag .pg { transition: none; }
 /* ---------------- warning badge on the main screen (inside the CVT panel) ---------------- */
 .t-badge {
   position: absolute; z-index: 30; width: 40px; height: calc(40px * var(--px-aspect, 1));
-  background: #ff2d3d; display: grid; place-items: center; cursor: pointer;
+  background: #ff2d3d; color: #fff; display: grid; place-items: center; cursor: pointer;
   border-radius: var(--t-badge-r, 14px);    /* set from the panel's own radius: concentric corners */
   transform: scale(0); opacity: 0; pointer-events: none;
   transition: transform .35s cubic-bezier(.3,1.6,.5,1), opacity .2s;
@@ -30,6 +30,7 @@ body.pg-drag .pg { transition: none; }
 }
 .t-badge svg { width: 23px; height: 23px; }
 .t-badge.on { transform: scale(1); opacity: 1; pointer-events: auto; animation: t-pulse 1.4s ease-in-out infinite; }
+.t-badge.on.dtc { background: #ffc21a; color: #141414; animation: none; }   /* trouble codes: yellow, no pulse (it stays all drive) */
 @keyframes t-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,45,61,.7); } 50% { box-shadow: 0 0 0 9px rgba(255,45,61,0); } }
 #panel-cvt { position: relative; }
 #panel-cvt .panel__head { transition: padding-right .3s cubic-bezier(.2,.8,.2,1); }
@@ -136,6 +137,16 @@ body.pg-drag .pg { transition: none; }
 .t-tile .t-sub { font: 500 13px/1 TMono; color: var(--dim); margin-top: auto; }
 .t-tile .t-bar { height: 10px; margin-top: 16px; }
 
+/* codes tab */
+.t-ptab.t-ctab th, .t-ptab.t-ctab td.n { text-align: left; } .t-ptab.t-ctab td { padding: 8px 0; }
+.t-ctab tr.now td.n:first-child { color: var(--warn); } .t-quiet { opacity: .45; }
+.t-clear { position: relative; margin-top: auto; height: 54px; display: grid; place-items: center; border: 1px solid var(--crit); color: var(--crit);
+  font: 700 italic 18px/1 TBarlow; letter-spacing: 2px; cursor: pointer; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.t-clear[hidden] { display: none; } .t-clear span { position: relative; }
+.t-clear i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(255,45,61,.35); }
+.t-clear.hold i { width: 100%; transition: width 2s linear; }
+#t-clearmsg { margin-top: 8px; min-height: 14px; }
+
 /* alert banner */
 .t-toast { position: absolute; left: 262px; top: 58px; width: 500px; height: 72px; display: flex; align-items: center; gap: 14px; padding: 0 22px 0 18px;
   background: var(--crit); color: #fff; clip-path: polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%); z-index: 4;
@@ -147,6 +158,8 @@ body.pg-drag .pg { transition: none; }
 .t-toast em { position: absolute; right: 18px; top: 8px; font: 700 italic 12px TBarlow; letter-spacing: 1px; opacity: .85; }
 #page-tele.t-alert .t-toast { transform: translateY(0); }
 #page-tele.t-alert .t-rpm { opacity: .2; }
+#page-tele.t-dtc .t-toast { transform: translateY(0); background: var(--warn); color: #141414; box-shadow: 0 10px 40px rgba(255,194,26,.35); }
+#page-tele.t-dtc .t-toast .ic { border-color: #141414; }
 
 /* opening animation: first time the page opens after ignition */
 .t-introfx { position: absolute; inset: 0; z-index: 10; pointer-events: none; display: none; overflow: hidden; }

@@ -5,7 +5,7 @@
 //              temp_c, lockup: "open"|"engaging"|"releasing"|"locked"|"coast", slip_rpm,
 //              tcc_a (torque converter clutch solenoid current, A) },
 //     media: { status: "playing"|"paused"|"stopped", title, artist, art, position_ms, duration_ms, codec } }
-//   media.art = image URL or data URI. Missing art -> placeholder.
+//   media.art = image URL or data URI. null -> placeholder. No "art" key at all = same cover as before.
 //   vol = { db, mute, min_db, max_db } (CamillaDSP main volume) | null; page sends {cmd:"vol", db}.
 // Live source: hud-service on ws://<host>:8766 pushes {"media": ...} about once a second and
 // {"cvt": ...} ~12 times a second (vLinker, read-only; null = no adapter / car off),
@@ -34,8 +34,8 @@ const TEMP_STOPS = [              // °C
   [20, BLUE], [45, BLUE],         // (placeholder) cold = blue
   [60, GREEN],                    // (placeholder) normal = green
   [90, GREEN],                    // 90: starts turning orange
-  [95, YELLOW], [100, ORANGE],
-  [110, RED],                     // 110: red
+  [95, YELLOW], [98, ORANGE],
+  [100, RED],                     // 100: red (the alert fires here)
   [130, VOLCANIC]                 // 130: limit, volcanic red
 ];
 
@@ -56,6 +56,7 @@ const SMOOTH_TAU = 0.09;   // s; bigger = smoother but slower needles, 0 = no sm
 const PEAK_MIN_MPA = 2.25;   // gold peak line only when the held pressure peak is above this
 const PEAK_HOLD_MS = 5500;   // peak holds this long, then fades
 const PEAK_FADE_MS = 600;    // fade time, then it resets to the live value
+const PEAK_GAP = 0.02;       // value this far below the peak (fraction of the scale) = peak line fully visible
 
 // Peak hold: jumps to any new max at once, holds holdMs, fades over PEAK_FADE_MS, then restarts from the live value.
 // holdMs = Infinity: holds until reset() (fluid temp: the whole drive). A data dropout (null) keeps the peak.
@@ -185,7 +186,7 @@ for (const g of CONFIG.gauges) {
   cvtHost.appendChild(el);
   gaugeEls[g.key] = { el, arc: el.querySelector(".gauge__value"), num: el.querySelector("b"), cfg: g,
     gap: el.querySelector(".gauge__gap"), tgtEl: el.querySelector(".gauge__tgt"), pkEl: el.querySelector(".gauge__peak"),
-    subEl: el.querySelector(".gauge__sub"), tgt: null, peak: g.peak ? new PeakHold(g.peak === "dim" ? Infinity : PEAK_HOLD_MS) : null, raw: null };
+    subEl: el.querySelector(".gauge__sub"), tgt: null, tg: { target: null, shown: null }, /* the target arrow, eased like the needle */ peak: g.peak ? new PeakHold(g.peak === "dim" ? Infinity : PEAK_HOLD_MS) : null, raw: null };
 }
 const angleOf = (cfg, v) => 135 + 270 * Math.max(0, Math.min(1, (v - cfg.min) / (cfg.max - cfg.min)));
 const fmtD = (x, dec) => (x < 0 ? "−" : "+") + Math.abs(x).toFixed(dec);   // real minus sign, like the mockup
@@ -195,11 +196,11 @@ function drawMarks(o, now) {
   const { cfg } = o, set = (k, el, attr, val) => { if (o[k] !== val) { el.setAttribute(attr, val); o[k] = val; } };
   const anim = WAKE.k < 1 || SWEEP.on || o.shown == null;
   if (o.tgtEl) {
-    const ok = !anim && o.tgt != null;
+    const ok = !anim && o.tg.shown != null;
     set("_tO", o.tgtEl, "opacity", ok ? "1" : "0"); set("_gO", o.gap, "opacity", ok ? ".35" : "0");
     if (ok) {
-      const fA = 75 * (angleOf(cfg, o.shown) - 135) / 270, fT = 75 * (angleOf(cfg, o.tgt) - 135) / 270;
-      set("_tR", o.tgtEl, "transform", `rotate(${angleOf(cfg, o.tgt).toFixed(1)} 60 60)`);
+      const fA = 75 * (angleOf(cfg, o.shown) - 135) / 270, fT = 75 * (angleOf(cfg, o.tg.shown) - 135) / 270;
+      set("_tR", o.tgtEl, "transform", `rotate(${angleOf(cfg, o.tg.shown).toFixed(1)} 60 60)`);
       set("_gD", o.gap, "stroke-dasharray", `${Math.abs(fA - fT).toFixed(2)} 100`);
       set("_gF", o.gap, "stroke-dashoffset", (-Math.min(fA, fT)).toFixed(2));
     }
@@ -207,7 +208,10 @@ function drawMarks(o, now) {
   const p = o.peak?.update(o.raw, now);
   if (o.pkEl) {
     const show = !anim && p && (cfg.peak === "dim" || p.v > PEAK_MIN_MPA);
-    set("_pO", o.pkEl, "opacity", show ? p.a.toFixed(2) : "0");
+    // the line only shows once the value has dropped away from the peak (fades in over PEAK_GAP of the scale):
+    // while the value climbs the peak is the newest sample, and drawing it made it step ahead of the eased needle
+    const away = show ? Math.max(0, Math.min(1, (p.v - o.raw) / ((cfg.max - cfg.min) * PEAK_GAP))) : 0;
+    set("_pO", o.pkEl, "opacity", show ? (p.a * away).toFixed(2) : "0");
     if (show) set("_pR", o.pkEl, "transform", `rotate(${angleOf(cfg, p.v).toFixed(1)} 60 60)`);
   }
   const sub = o.shown == null ? ""
@@ -343,7 +347,9 @@ function tick(now) {
   // adaptive: each gauge picks its own draw rate from how fast its needle is moving (ADAPT_FPS), capped by ?fps=
   for (const o of Object.values(gaugeEls)) {
     if (o.target != null && o.shown != null) stepTo(o, now);
-    if (!due(o, o.cfg.max - o.cfg.min, DRAW_FPS, now)) continue;
+    if (o.tg.target != null && o.tg.shown != null) stepTo(o.tg, now);
+    const span = o.cfg.max - o.cfg.min, dN = due(o, span, DRAW_FPS, now), dT = due(o.tg, span, DRAW_FPS, now);
+    if (!dN && !dT) continue;                             // drawn at the rate of whichever moves faster: needle or arrow
     if (o.shown != null && o.shown !== o.drawnAt) { drawGauge(o, o.shown); o.drawnAt = o.shown; }
     drawMarks(o, now);
   }
@@ -361,7 +367,13 @@ function setCvt(c) {
   $("cvt-hz").textContent = c?.hz ? `${Math.round(c.hz)} Hz` : "";      // CVT readings per second
   for (const g of CONFIG.gauges) {
     setGauge(g.key, c?.[g.key]);
-    if (g.tgt) { const t = c?.[g.tgt]; gaugeEls[g.key].tgt = t == null || Number.isNaN(t) ? null : t; }
+    if (g.tgt) {
+      const o = gaugeEls[g.key], t = c?.[g.tgt], tg = o.tg;
+      o.tgt = t == null || Number.isNaN(t) ? null : t;     // the number under the gauge shows the real target, the arrow eases to it
+      if (o.tgt == null) { tg.target = tg.shown = null; tg.lastT = tg.dur = null; }
+      else if (tg.shown == null || SMOOTH_TAU <= 0) { tg.shown = tg.target = o.tgt; tg.dur = null; tg.lastT = performance.now(); }
+      else retarget(tg, o.tgt);
+    }
   }
   setLockup(c?.lockup, c?.slip_rpm, c?.tcc_a);
 }
@@ -381,7 +393,7 @@ function setMedia(m) {
   const playing = m && m.status === "playing";
   $("b-play").innerHTML = playing ? ICON.pause : ICON.play;
   $("tag-codec").textContent = m?.codec ? `BT · ${m.codec}` : "BT";
-  const art = m?.art || PLACEHOLDER_ART;
+  const art = m && !("art" in m) && lastArt ? lastArt : m?.art || PLACEHOLDER_ART;
   if (art !== lastArt) { artImg.src = art; lastArt = art; }
   $("np-title").textContent = m?.title || "Nothing playing";
   $("np-artist").textContent = m?.title ? (m.artist || "") : "";
@@ -542,7 +554,7 @@ function startLive() {
         }
         if ("media" in d) setMedia(d.media);
         if ("vol" in d) setVol(d.vol);
-        if ("eng" in d || "alerts" in d) window.dispatchEvent(new CustomEvent("hud-msg", { detail: d }));
+        if ("eng" in d || "alerts" in d || "dtcs" in d || "dtc_clear" in d) window.dispatchEvent(new CustomEvent("hud-msg", { detail: d }));
         if ("dsp" in d || "dsp_lv" in d) window.dispatchEvent(new CustomEvent("hud-dsp", { detail: d }));   // dsp.js
         if ("welcomed" in d) setWelcomed(d.welcomed);
         if ("car" in d || "trip" in d) window.dispatchEvent(new CustomEvent("hud-trip", { detail: d }));
