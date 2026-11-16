@@ -1,5 +1,6 @@
 # RP2040 power controller v0.9.1
-#   v0.9.1: en PARK solo el BLOWER (2 s) o ENG 2 sacan a IGN/RUN; el ENG 1 que queda despues de
+#   v0.9.1: BYE_TIMEOUT 5 -> 2 min (Pi que no contesta el BYE en SHUTDOWN).
+#           En PARK solo el BLOWER (2 s) o ENG 2 sacan a IGN/RUN; el ENG 1 que queda despues de
 #           apagar la llave ya no salta PARK -> IGN (eso se comia el bye al abrir la puerta).
 #   v0.9: backlight de la Santek por PWM en GP28 (20 kHz) -> 1 kOhm -> enable del driver (colector de Q3).
 #         La Pi manda 'BL n' (0-100, nivel de pantalla) y 'BLN n' (nivel de noche para el respaldo).
@@ -51,7 +52,7 @@ led = neopixel.NeoPixel(Pin(PIN_LED), 1)
 
 # ---- tiempos (ms) ----
 DEBOUNCE, OFF_CONFIRM, HALT_WAIT = 200, 500, 15000
-BYE_TIMEOUT, AMP_DELAY, ALIVE_TIMEOUT = 300000, 1000, 6000
+BYE_TIMEOUT, AMP_DELAY, ALIVE_TIMEOUT = 120000, 1000, 6000   # BYE_TIMEOUT: Pi colgada en SHUTDOWN -> cortar R1 a los 2 min
 AMP_HOLD = 5000               # ms max de amps en SHUTDOWN (fade de la Pi)
 AMP_STATES = ("RUN", "EXT")   # PARK no: la musica ya paro
 CRANK_MAX = 8000              # un BLOWER apagado mas corto que esto = crank
