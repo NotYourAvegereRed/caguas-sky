@@ -3,6 +3,8 @@ Description=Backup camera: R3 on GPIO17 while in reverse (+8 s), /dev/shm/caguas
 
 [Service]
 User=zen
+# lgpio (gpiozero's Pi 5 backend) writes small notify files in the working dir; / is not writable for zen
+WorkingDirectory=/home/zen
 ExecStart=/usr/bin/python3 /usr/local/bin/cam_relay.py
 Restart=always
 RestartSec=2
