@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cam_relay.py v1.1 (2026-11-15): backup camera on while in reverse, and 8 s after leaving R (like the factory radio).
+"""cam_relay.py v1.2 (2026-11-15): backup camera on while in reverse, and 8 s after leaving R (like the factory radio).
 
 Reads REV from /dev/shm/caguas-lights {"t": monotonic, "ill", "rev"} (written by rp2040-link; a fresh "-test" file
 wins, so 'rp2040-link.py test rev 1' works). Camera on = REV seen in the last HOLD_S seconds.
@@ -8,7 +8,7 @@ wins, so 'rp2040-link.py test rev 1' works). Camera on = REV seen in the last HO
   - /dev/shm/caguas-cam {"t": monotonic, "on": 0/1}: hud_service tells the page to show the camera.
 Stale or missing REV data counts as not in reverse (the hold still runs out).
 """
-import json, os, time
+import json, os, subprocess, time
 
 LIGHTS = "/dev/shm/caguas-lights"
 CAM_FILE = "/dev/shm/caguas-cam"
@@ -39,18 +39,22 @@ def write(on, now):
     os.replace(tmp, CAM_FILE)
 
 
+def set_pin(on):
+    # pinctrl ships with Pi OS; gpiozero + lgpio failed on this Pi 5 ('unexpected error' claiming the pin)
+    subprocess.run(["pinctrl", "set", str(PIN), "op", "dh" if on else "dl"], check=True)
+
+
 def main():
-    from gpiozero import OutputDevice
-    relay = OutputDevice(PIN, active_high=True, initial_value=False)
+    set_pin(False)
     on, last_rev, last_write = False, None, 0.0
-    print(f"cam_relay v1.1: GPIO{PIN} (pin 37) -> R3, hold {HOLD_S:.0f} s", flush=True)
+    print(f"cam_relay v1.2: GPIO{PIN} (pin 37) -> R3, hold {HOLD_S:.0f} s", flush=True)
     while True:
         now = time.monotonic()
         if rev_on(now):
             last_rev = now
         want = cam_wanted(last_rev, now)
         if want != on:
-            relay.value = want; on = want
+            set_pin(want); on = want
             print(f"camera {'ON' if on else 'off'}", flush=True)
         if want != on or now - last_write >= 1.0 or last_write == 0.0:
             write(on, now); last_write = now
