@@ -1,4 +1,6 @@
-# RP2040 power controller v0.9
+# RP2040 power controller v0.9.1
+#   v0.9.1: en PARK solo el BLOWER (2 s) o ENG 2 sacan a IGN/RUN; el ENG 1 que queda despues de
+#           apagar la llave ya no salta PARK -> IGN (eso se comia el bye al abrir la puerta).
 #   v0.9: backlight de la Santek por PWM en GP28 (20 kHz) -> 1 kOhm -> enable del driver (colector de Q3).
 #         La Pi manda 'BL n' (0-100, nivel de pantalla) y 'BLN n' (nivel de noche para el respaldo).
 #         Fade de 0 a 100 en BL_FADE_MS. Con R1 apagado el pin queda suelto (la Santek sin corriente).
@@ -319,8 +321,10 @@ def tick():
             else:  # PARK
                 if eng == 2:
                     want = "RUN"
-                elif key_on:
-                    want = "IGN"; blw_seen = blw
+                elif blw and time.ticks_diff(now, blw_on_t) >= EXT_BLW_CONFIRM:
+                    # llave en ON otra vez = BLOWER vivo 2 s, como en EXT. ENG 1 no cuenta: el ECM
+                    # sigue contestando el OBD unos segundos despues de apagar la llave.
+                    want = "IGN"; blw_seen = True
                 else:
                     want = "PARK"            # cerrar la puerta no lo saca
             if want != state:

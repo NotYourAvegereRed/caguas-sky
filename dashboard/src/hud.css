@@ -198,3 +198,6 @@ body.hud-hide-bodies .bg-moon { display: none !important; }
 .hud--wake .cell:nth-child(5) { animation-delay: .54s; } .hud--wake .cell:nth-child(6) { animation-delay: .6s; }
 @keyframes hud-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .hud--wake .panel, .hud--wake .panel::after, .hud--wake .np__art, .hud--wake .cell { animation: none; } }
+
+/* Touch-only screen (the Santek in the car): no mouse cursor. A laptop with a mouse still shows it. */
+@media (hover: none) { *, *::before, *::after { cursor: none !important; } }
