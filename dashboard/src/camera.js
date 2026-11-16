@@ -6,12 +6,15 @@
 // sudo python3 /usr/local/bin/rp2040-link.py test rev 1
 const v = document.createElement("video");
 v.muted = true; v.playsInline = true;
-v.style.cssText = "position:fixed;inset:0;width:100%;height:100%;object-fit:fill;background:#000;z-index:2147483000;visibility:hidden";
+v.style.cssText = "position:fixed;inset:0;width:100%;height:100%;object-fit:fill;background:#000;z-index:2147483000;pointer-events:none;opacity:0;transform:scale(1.06);" +
+  "transition:opacity .3s ease-in,transform .3s ease-in";   // leaving R: slower, eases away
 document.body.appendChild(v);
 
 let want = 0, opening = false, retry = 0;
 async function sync() {
-  v.style.visibility = want === 2 ? "visible" : "hidden";      // black until the first frame, never the dashboard
+  // entering R: fast (.18 s, the picture matters more than the effect), zooms in a touch from 1.06
+  v.style.transitionDuration = want === 2 ? ".18s" : ".3s";
+  v.style.opacity = want === 2 ? 1 : 0; v.style.transform = want === 2 ? "none" : "scale(1.06)";
   if (!want) { v.srcObject?.getTracks().forEach((t) => t.stop()); v.srcObject = null; return; }
   if (v.srcObject || opening) return;
   opening = true;
