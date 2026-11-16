@@ -128,6 +128,8 @@ DTC_FILE = os.path.expanduser(os.environ.get("HUD_DTC_FILE", "~/.local/share/hud
 DTC_QUIET = {"U1000", "U1001"}   # CAN communication history codes: common and harmless -> code history only, no badge
 NO_CAR_GRACE_S = 25.0     # no RP2040 state after this long (bench): show the screen anyway
 WELCOME_WAIT_S = 20.0
+PAGE_SETTLE_S = 2.0       # page just connected (Chromium still loading / first paint): the welcome waits this long
+CAM_HOLD_S = 10.0         # reverse camera stays warm this long after leaving P / N / R
 PARK_BYE_DELAY_S = 1.5    # door opened (PARK): let the music fade first
 BYE_SHOW_S = 4.5          # then "Good night, Zen" on screen this long
 BYE_FADE_S = 2.5          # then the backlight fades to black (the Pi stays on until ACC goes away)     # car in RUN but no page connected: give up on the welcome and show the screen
@@ -515,6 +517,9 @@ class Display:
         self.bye_seen = None        # 't' of the last bye request handled
         self.park_t = None          # when the car went to PARK (door opened): bye, then screen off
         self.park_bye = False
+        self.page_t = None          # since when a page is connected
+        self.cam = 0                # reverse camera: 0 off, 1 warm (powered + capturing, hidden), 2 on screen
+        self.cam_t = -1e9
         self.ensure_cfg_file()
 
     # ---------- settings ----------
@@ -600,13 +605,28 @@ class Display:
             return g["bye_night"] if (h >= 18 or h < 5) else g["bye"]
         return g["morning"] if 5 <= h < 12 else g["afternoon"] if 12 <= h < 18 else g["evening"]
 
+    def update_cam(self, gear, rev, now):
+        """Camera powered and capturing in P / N (you always pass through one of them on the way to R), so the
+        picture is already there in R. On screen with the reverse wire (RP2040 REV) or the TCM gear, whichever
+        comes first."""
+        show = rev == 1 or gear == "R"
+        if show or gear in ("P", "N"):
+            self.cam_t = now
+        cam = 2 if show else 1 if now - self.cam_t < CAM_HOLD_S else 0
+        changed, self.cam = cam != self.cam, cam
+        return changed
+
     # ---------- the decision, every 0.25 s ----------
-    def update(self, has_page, alert):
-        """Returns a list of messages for the page (welcome / bye / welcomed)."""
+    def update(self, has_page, alert, gear=None):
+        """Returns a list of messages for the page (welcome / bye / welcomed / cam)."""
         self.load_cfg()
         now = time.monotonic()
         self.update_night(now)
         out = []
+        self.page_t = (self.page_t or now) if has_page else None
+        if self.update_cam(gear, self.read_fresh(LIGHTS_FILE, "rev", lambda v: v in (0, 1)), now):
+            out.append({"cam": self.cam})
+            print(f"camera {('off', 'warm', 'on screen')[self.cam]}", flush=True)
         car = self.read_fresh(CAR_FILE, "state", lambda v: isinstance(v, str), test=False)
         if car is not None:
             self.seen_car = True
@@ -645,7 +665,7 @@ class Display:
         elif not self.welcomed:
             if car == "RUN":
                 self.run_t = self.run_t or now
-                if has_page:
+                if has_page and now - self.page_t >= PAGE_SETTLE_S:
                     self.welcomed = True; bl = lvl
                     out.append({"welcome": {"name": self.cfg["name"], "greet": self.greeting()}})
                     out.append({"welcomed": True})
@@ -668,7 +688,7 @@ class Display:
         try:
             tmp = BL_FILE + ".tmp"
             with open(tmp, "w") as f:
-                json.dump({"t": now, "bl": self.bl, "night": self.cfg["night_pct"]}, f)
+                json.dump({"t": now, "bl": self.bl, "night": self.cfg["night_pct"], "cam": int(self.cam > 0)}, f)
             os.replace(tmp, BL_FILE)
         except OSError as e:
             print(f"could not write {BL_FILE}: {e}", flush=True)
@@ -844,7 +864,7 @@ class Hud:
             del media["art"]
         return json.dumps({"media": media, "cvt": self.cvt.latest(), "vol": self.vol.state(),
                            "eng": self.eng(), "alerts": self.cvt.alerts(), **self.dtc_state(), "welcomed": self.display.welcomed,
-                           "car": self.display.car, "trip": self.trip.last, "units": self.display.cfg["units"]})
+                           "car": self.display.car, "cam": self.display.cam, "trip": self.trip.last, "units": self.display.cfg["units"]})
 
     # ---------- state updates ----------
     def set_position(self, ms):
@@ -1210,7 +1230,7 @@ class Hud:
             try:
                 alerts_on = bool(self.cvt.alerts())
                 prev_car = self.display.car
-                msgs = self.display.update(bool(self.clients), alerts_on)
+                msgs = self.display.update(bool(self.clients), alerts_on, (self.cvt.latest() or {}).get("gear"))
                 car = self.display.car
                 self.trip.eng(self.cvt.latest_eng()); self.trip.alerts(alerts_on)
                 summ = self.trip.car(car) if car is not None else None

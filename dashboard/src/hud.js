@@ -561,6 +561,7 @@ function startLive() {
         if ("car" in d && d.car && !["PARK", "SHUTDOWN"].includes(d.car)) window.welcome?.unbye();   // came back
         if (d.welcome) window.welcome?.play(d.welcome);
         if (d.bye) window.welcome?.bye(d.bye);
+        if ("cam" in d) window.dispatchEvent(new CustomEvent("hud-cam", { detail: d.cam }));   // camera.js
       } catch {}
     };
     ws.onclose = () => {
@@ -583,6 +584,7 @@ function setWelcomed(w) {
   else if (w === true && welcomeHold) { welcomeHold = false; window.welcome?.hold(false); if (!window.welcome?.playing) WAKE.armed = true; }
 }
 
+if (location.hostname === "localhost") document.documentElement.classList.add("kiosk");   // the car's own screen: no mouse cursor
 CONFIG.demo ? startDemo() : startLive();
 
 window.hud = { setCvt, setMedia, setVol, holdWake, sweep: startSweep, isHeld: () => welcomeHold, send: (c) => sendCmd(c) };

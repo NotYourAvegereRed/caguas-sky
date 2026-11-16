@@ -16,9 +16,9 @@ LDAC and CVT pressures on my radio screen with a nice UI, but I just kept diggin
 | **Audio / DSP page** | Live levels for every channel, presets, bass / treble / sub level. |
 | **Alerts** | Oil pressure scaled by rpm, coolant and oil temp, CVT fluid (100 °C) and battery voltage, with a red badge on the main screen. Trouble codes (ECM / TCM / BCM) are read after every engine start: yellow badge, a code history on the CODES tab and a hold-to-clear button (in P only). |
 | **Live sky** | Real sun and moon position and moon phase over Caguas as the wallpaper. |
-| **Car integration** | RP2040 power controller (ACC / IGN, relays, backlight PWM), factory radio emulated on the CAN bus (steering wheel buttons, cluster text and clock), light sensor screen dimming. |
+| **Car integration** | RP2040 power controller (ACC / IGN, relays, backlight PWM), factory radio emulated on the CAN bus (steering wheel buttons, cluster text and clock), light sensor screen dimming, reverse camera (factory camera through a USB capture stick: powered and capturing in P / N, on screen in R). |
 | **PID hunting** | First PID scan, CVTz50 and Car Scanner Bluetooth snoops, then drive logs to find what the apps never asked for (torque, ratio, pulley speeds). |
-| **Still digging** | Dashcam, reverse camera, case with two Noctua fans and PWM control, and maybe a plug-and-play CVT gauge to sell. |
+| **Still digging** | Dashcam, case with two Noctua fans and PWM control, and maybe a plug-and-play CVT gauge to sell. |
 
 ## What's in this repo
 
@@ -29,7 +29,7 @@ LDAC and CVT pressures on my radio screen with a nice UI, but I just kept diggin
 | `rp2040/` | MicroPython firmware for the RP2040-Zero power controller. |
 | `camilladsp/configs/` | CamillaDSP configs. Every `*.yml` here (except `test_*`) shows up as a preset on the DSP page. |
 | `systemd/` | Service and timer files, copies of what is installed in `/etc/systemd/system`. |
-| `tools/` | Test and diagnostic scripts (`pi_usage.py`, `gpu_usage.py`, `lux_test.py`, `dtc_probe.py`, ...). |
+| `tools/` | Test and diagnostic scripts (`pi_usage.py`, `gpu_usage.py`, `lux_test.py`, `dtc_probe.py`, `timeline.py`: door / key -> bye / music timing from the journal, ...). |
 
 ## How it runs on the Pi
 
