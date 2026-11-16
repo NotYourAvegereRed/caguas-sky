@@ -557,6 +557,7 @@ function startLive() {
         if ("eng" in d || "alerts" in d || "dtcs" in d || "dtc_clear" in d) window.dispatchEvent(new CustomEvent("hud-msg", { detail: d }));
         if ("dsp" in d || "dsp_lv" in d) window.dispatchEvent(new CustomEvent("hud-dsp", { detail: d }));   // dsp.js
         if ("welcomed" in d) setWelcomed(d.welcomed);
+        if ("cam" in d) window.dispatchEvent(new CustomEvent("hud-cam", { detail: d.cam }));   // camera.js
         if ("car" in d || "trip" in d) window.dispatchEvent(new CustomEvent("hud-trip", { detail: d }));
         if ("car" in d && d.car && !["PARK", "SHUTDOWN"].includes(d.car)) window.welcome?.unbye();   // came back
         if (d.welcome) window.welcome?.play(d.welcome);

@@ -118,6 +118,7 @@ TONE_MIN, TONE_MAX = -12.0, 12.0
 DSP_TONE_FILE = os.path.expanduser(os.environ.get("HUD_DSP_TONE", "~/.config/hud/dsp.json"))  # {"bass": dB, "treble": dB}
 LIGHTS_FILE = os.environ.get("HUD_LIGHTS_FILE", "/dev/shm/caguas-lights")
 LUX_FILE = os.environ.get("HUD_LUX_FILE", "/dev/shm/caguas-lux")      # light_reader.py: screen level from the VEML7700
+CAM_FILE = os.environ.get("HUD_CAM_FILE", "/dev/shm/caguas-cam")      # cam_relay.py: backup camera on (REV + 8 s)
 DISPLAY_FILE = os.path.expanduser(os.environ.get("HUD_DISPLAY_FILE", "~/.config/hud/display.json"))
 LIGHTS_FRESH_S = 5.0
 BL_FILE = os.environ.get("HUD_BL_FILE", "/dev/shm/caguas-bl")        # read by rp2040-link -> RP2040 'BL n'
@@ -799,6 +800,7 @@ class Hud:
         self.tone_reapply = True        # saved bass / treble go back in after start, preset change, reload
         self.display = Display()
         self.trip = Trip()
+        self.cam = False
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sent_track = None
         self.swc_t = 0.0             # when the current volume button was pressed
@@ -844,7 +846,7 @@ class Hud:
             del media["art"]
         return json.dumps({"media": media, "cvt": self.cvt.latest(), "vol": self.vol.state(),
                            "eng": self.eng(), "alerts": self.cvt.alerts(), **self.dtc_state(), "welcomed": self.display.welcomed,
-                           "car": self.display.car, "trip": self.trip.last, "units": self.display.cfg["units"]})
+                           "car": self.display.car, "trip": self.trip.last, "units": self.display.cfg["units"], "cam": self.cam})
 
     # ---------- state updates ----------
     def set_position(self, ms):
@@ -1216,6 +1218,9 @@ class Hud:
                 summ = self.trip.car(car) if car is not None else None
                 if car != prev_car:
                     msgs.append({"car": car})
+                cam = Display.read_fresh(CAM_FILE, "on", lambda v: v in (0, 1)) == 1
+                if cam != self.cam:
+                    self.cam = cam; msgs.append({"cam": cam})
                 if summ:
                     msgs.append({"trip": summ, "units": self.display.cfg["units"]})
                 scans = self.cvt.pop_scans()                       # scans finished: history, then the page

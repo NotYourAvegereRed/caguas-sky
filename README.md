@@ -18,14 +18,14 @@ LDAC and CVT pressures on my radio screen with a nice UI, but I just kept diggin
 | **Live sky** | Real sun and moon position and moon phase over Caguas as the wallpaper. |
 | **Car integration** | RP2040 power controller (ACC / IGN, relays, backlight PWM), factory radio emulated on the CAN bus (steering wheel buttons, cluster text and clock), light sensor screen dimming. |
 | **PID hunting** | First PID scan, CVTz50 and Car Scanner Bluetooth snoops, then drive logs to find what the apps never asked for (torque, ratio, pulley speeds). |
-| **Still digging** | Dashcam, reverse camera, case with two Noctua fans and PWM control, and maybe a plug-and-play CVT gauge to sell. |
+| **Still digging** | Dashcam, case with two Noctua fans and PWM control, and maybe a plug-and-play CVT gauge to sell. |
 
 ## What's in this repo
 
 | Folder | What it is |
 |---|---|
 | `dashboard/` | The screen: `index.html` + `src/` (HTML / CSS / JS, shown full screen by Chromium) and `service/` (`hud_service.py`: media, CVT / OBD reader, DSP control, screen level over a WebSocket). `kiosk.sh` starts the screen. |
-| `car/` | Car-side services: `rogue_can.py` (CAN radio emulator), `rp2040-link.py` (power link to the RP2040), `light_reader.py` (VEML7700), `phone-autoconnect.sh`, `wifi-prefer-home.sh`. |
+| `car/` | Car-side services: `rogue_can.py` (CAN radio emulator), `rp2040-link.py` (power link to the RP2040), `light_reader.py` (VEML7700), `cam_relay.py` (backup camera power), `phone-autoconnect.sh`, `wifi-prefer-home.sh`. |
 | `rp2040/` | MicroPython firmware for the RP2040-Zero power controller. |
 | `camilladsp/configs/` | CamillaDSP configs. Every `*.yml` here (except `test_*`) shows up as a preset on the DSP page. |
 | `systemd/` | Service and timer files, copies of what is installed in `/etc/systemd/system`. |
@@ -43,6 +43,7 @@ Everything starts by itself at boot. The live copies are linked, not copied: `~/
 | `rogue-can` | Factory radio emulator on the CAN bus |
 | `rp2040-link` | Power states, music fade, backlight |
 | `light-reader` | Light sensor → screen level |
+| `cam-relay` | Backup camera power in reverse (+8 s) → camera page |
 | `wifi-prefer-home.timer` | Leaves the phone hotspot when home Wi-Fi is in range |
 | `phone-autoconnect` (user) | Reconnects the phone over Bluetooth |
 
