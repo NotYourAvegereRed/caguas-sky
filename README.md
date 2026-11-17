@@ -43,7 +43,7 @@ Everything starts by itself at boot. The live copies are linked, not copied: `~/
 | `rogue-can` | Factory radio emulator on the CAN bus |
 | `rp2040-link` | Power states, music fade, backlight |
 | `light-reader` | Light sensor → screen level |
-| `cam-relay` | Backup camera power (R3, GPIO26): on in P / N (from hud-service) and in reverse |
+| `cam-relay` | Backup camera power (R3, GPIO26): on in P / N (from hud-service) and in reverse, only with the engine running (never while cranking) |
 | `wifi-prefer-home.timer` | Leaves the phone hotspot when home Wi-Fi is in range |
 | `phone-autoconnect` (user) | Reconnects the phone over Bluetooth |
 
