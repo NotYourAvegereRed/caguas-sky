@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup camera: R3 on GPIO26 while in reverse (+8 s), /dev/shm/caguas-cam for the page
+
+[Service]
+User=zen
+ExecStart=/usr/bin/python3 /usr/local/bin/cam_relay.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

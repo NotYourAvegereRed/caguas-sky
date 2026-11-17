@@ -1,33 +1,93 @@
-// Reverse camera: the factory camera through the USB capture stick (UVC), full screen over everything.
-// hud-service sends {"cam": 0 | 1 | 2}: 0 off, 1 warm (P / N: capturing, hidden, so R shows a picture at once),
-// 2 on screen (reverse wire or gear R). The RP2040 powers the camera for 1 and 2.
-// Needs --use-fake-ui-for-media-stream (kiosk.sh) and a secure origin (localhost): from another PC there is
-// no camera, the page just never shows it. Preview on the Pi: ?cam=2. Test in the car without shifting:
-// sudo python3 /usr/local/bin/rp2040-link.py test rev 1
-const v = document.createElement("video");
-v.muted = true; v.playsInline = true;
-v.style.cssText = "position:fixed;inset:0;width:100%;height:100%;object-fit:fill;background:#000;z-index:2147483000;pointer-events:none;opacity:0;transform:scale(1.06);" +
-  "transition:opacity .3s ease-in,transform .3s ease-in";   // leaving R: slower, eases away
-document.body.appendChild(v);
+// camera.js: backup camera page. hud.js fires "hud-cam" from hud_service: 0 off, 1 warm (P / N: the capture is
+// open but hidden, so R shows a picture at once), 2 on screen (REV wire or gear R, + 8 s). A failed open is
+// retried every 2 s while wanted. Preview on a laptop: ?cam=2 (uses its webcam), ?cam=1 warm.
 
-let want = 0, opening = false, retry = 0;
-async function sync() {
-  // entering R: fast (.18 s, the picture matters more than the effect), zooms in a touch from 1.06
-  v.style.transitionDuration = want === 2 ? ".18s" : ".3s";
-  v.style.opacity = want === 2 ? 1 : 0; v.style.transform = want === 2 ? "none" : "scale(1.06)";
-  if (!want) { v.srcObject?.getTracks().forEach((t) => t.stop()); v.srcObject = null; return; }
-  if (v.srcObject || opening) return;
-  opening = true;
+// Guides, in a 1000 x 600 box stretched over the picture. CALIBRATE IN THE CAR: put cones (or boxes) at
+// 0.5 m, 1 m and 2 m behind the bumper, at the car's width, and move these numbers until the lines sit on them.
+const GUIDE = {
+  near: { y: 600, l: 210, r: 790 },   // bottom of the screen (bumper)
+  far:  { y: 300, l: 405, r: 595 },   // end of the side lines (~2 m)
+  marks: [ { y: 515, c: "#ff3b30" },  // ~0.5 m: red
+           { y: 420, c: "#ffd60a" },  // ~1 m:   yellow
+           { y: 300, c: "#34c759" } ],// ~2 m:   green
+  tick: 34,                           // length of the cross marks
+};
+const SKIP = /rp1|pisp|unicam|bcm2835|hevc/i;   // Pi 5 internal video nodes, never the capture card
+
+const box = document.createElement("div");
+box.id = "cam"; box.hidden = true;
+box.innerHTML = `<video class="cam__v" muted playsinline autoplay></video>
+  <svg class="cam__g" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
+  <div class="cam__msg" hidden></div>`;
+document.body.appendChild(box);
+const video = box.querySelector("video"), svg = box.querySelector("svg"), msg = box.querySelector(".cam__msg");
+
+// side lines take the color of the zone they cross; cross marks at each distance
+const xAt = (side, y) => {
+  const k = (GUIDE.near.y - y) / (GUIDE.near.y - GUIDE.far.y);
+  return GUIDE.near[side] + (GUIDE.far[side] - GUIDE.near[side]) * k;
+};
+let guides = "", y0 = GUIDE.near.y;
+for (const m of GUIDE.marks) {
+  for (const s of ["l", "r"]) guides += `<line x1="${xAt(s, y0)}" y1="${y0}" x2="${xAt(s, m.y)}" y2="${m.y}" stroke="${m.c}"/>`;
+  guides += `<line x1="${xAt("l", m.y)}" y1="${m.y}" x2="${xAt("l", m.y) + GUIDE.tick}" y2="${m.y}" stroke="${m.c}"/>`;
+  guides += `<line x1="${xAt("r", m.y)}" y1="${m.y}" x2="${xAt("r", m.y) - GUIDE.tick}" y2="${m.y}" stroke="${m.c}"/>`;
+  y0 = m.y;
+}
+svg.innerHTML = guides;
+
+let stream = null, want = 0, devId = null, opening = false, retry = 0;
+
+async function pickDevice() {
+  const all = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  return all.find(d => d.label && !SKIP.test(d.label))?.deviceId ?? null;
+}
+
+async function open() {
+  if (stream || opening || !want) return;
+  opening = true; clearTimeout(retry);
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ video: true });
-    s.getVideoTracks()[0].onended = () => { v.srcObject = null; sync(); };   // stick unplugged / USB hiccup
-    v.srcObject = s; await v.play();
+    if (!devId) {   // labels only show after the first permission; the kiosk grants it on its own
+      const probe = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      probe.getTracks().forEach(t => t.stop());
+      devId = await pickDevice();
+    }
+    const s = await navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { ...(devId ? { deviceId: { exact: devId } } : {}), width: { ideal: 720 }, height: { ideal: 480 } } });
+    if (!want) s.getTracks().forEach(t => t.stop());   // camera off while it was opening
+    else {
+      stream = s; video.srcObject = s; msg.hidden = true;
+      s.getVideoTracks()[0].onended = () => { close(); msg.textContent = "Capture card desconectada"; msg.hidden = false; open(); };
+    }
   } catch (e) {
-    console.warn("camera:", e); clearTimeout(retry); retry = setTimeout(sync, 2000);
+    devId = null;
+    msg.textContent = "Sin señal de la cámara"; msg.hidden = false;   // from Chromium: the capture card did not open
+    console.warn("camera:", e);
+    retry = setTimeout(open, 2000);
   }
   opening = false;
-  sync();                                                      // 'want' may have changed while it opened
 }
-window.addEventListener("hud-cam", (e) => { want = e.detail || 0; sync(); });
-const q = Number(new URLSearchParams(location.search).get("cam"));
-if (q) { want = q; sync(); }
+
+function close() {
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null;
+}
+
+function show(v) {
+  v = v === true ? 2 : Number(v) || 0;
+  if (v === want) return;
+  const was = want; want = v;
+  if (v) open(); else { clearTimeout(retry); close(); }
+  if (v === 2) {
+    box.hidden = false;
+    requestAnimationFrame(() => box.classList.add("cam--on"));
+  } else if (was === 2) {
+    box.classList.remove("cam--on");
+    setTimeout(() => { if (want !== 2) box.hidden = true; }, 350);
+  }
+}
+
+window.addEventListener("hud-cam", e => show(e.detail));
+const q = new URLSearchParams(location.search).get("cam");
+if (q) show(Number(q));
+window.camera = { show };

@@ -1,6 +1,7 @@
-# RP2040 power controller v0.10
-#   v0.10: camara de reversa: GP26 -> relay del DROK 6 V. Prendida con REV (sin la Pi tambien) o cuando la Pi
-#          manda 'CAM 1' (P / N: la imagen ya esta lista al pasar a R). 'CAM' viejo (> 3 s) = solo REV.
+# RP2040 power controller v0.9.1
+#   v0.9.1: BYE_TIMEOUT 5 -> 2 min (Pi que no contesta el BYE en SHUTDOWN).
+#           En PARK solo el BLOWER (2 s) o ENG 2 sacan a IGN/RUN; el ENG 1 que queda despues de
+#           apagar la llave ya no salta PARK -> IGN (eso se comia el bye al abrir la puerta).
 #   v0.9: backlight de la Santek por PWM en GP28 (20 kHz) -> 1 kOhm -> enable del driver (colector de Q3).
 #         La Pi manda 'BL n' (0-100, nivel de pantalla) y 'BLN n' (nivel de noche para el respaldo).
 #         Fade de 0 a 100 en BL_FADE_MS. Con R1 apagado el pin queda suelto (la Santek sin corriente).
@@ -38,7 +39,6 @@ PIN_REV     = 15   # reversa (opto IN3)
 PIN_ILL     = 14   # luces / ILL (opto IN4)
 PIN_LED     = 16
 PIN_BL      = 29   # backlight Santek (PWM -> 1k -> A1 / enable del driver)
-PIN_CAM     = 26   # relay de la camara de reversa (DROK 12 -> 6 V), activo en alto como R1 / R2
 BAUD = 115200
 
 ACC = Pin(PIN_ACC, Pin.IN, Pin.PULL_UP)   # LOW = on (igual que las optos)
@@ -48,12 +48,11 @@ ILL = Pin(PIN_ILL, Pin.IN, Pin.PULL_UP)
 _car_on = ACC.value() == 0 or IGN.value() == 0
 R1 = Pin(PIN_R1_PI, Pin.OUT, value=1 if _car_on else 0)   # sin bajarlo si ya estaba en ON (soft reset)
 R2 = Pin(PIN_R2_REM, Pin.OUT, value=0)
-CAM = Pin(PIN_CAM, Pin.OUT, value=0)
 led = neopixel.NeoPixel(Pin(PIN_LED), 1)
 
 # ---- tiempos (ms) ----
 DEBOUNCE, OFF_CONFIRM, HALT_WAIT = 200, 500, 15000
-BYE_TIMEOUT, AMP_DELAY, ALIVE_TIMEOUT = 300000, 1000, 6000
+BYE_TIMEOUT, AMP_DELAY, ALIVE_TIMEOUT = 120000, 1000, 6000   # BYE_TIMEOUT: Pi colgada en SHUTDOWN -> cortar R1 a los 2 min
 AMP_HOLD = 5000               # ms max de amps en SHUTDOWN (fade de la Pi)
 AMP_STATES = ("RUN", "EXT")   # PARK no: la musica ya paro
 CRANK_MAX = 8000              # un BLOWER apagado mas corto que esto = crank
@@ -109,7 +108,6 @@ bl_pwm = None; bl_cur = 0.0; bl_shown = -1; bl_last_t = time.ticks_ms()
 bl_v = None; bl_t = None; bl_night = BL_NIGHT_DEFAULT; bl_boot = False; bl_boot_t = 0
 state_dirty = False
 eng_v = None; eng_t = None; door_v = None; door_t = None
-cam_v = None; cam_t = None
 
 def uart_on():
     global uart
@@ -182,7 +180,7 @@ def num(b):
         return None
 
 def read_uart(now):
-    global buf, alive_t, dsp_ok, bye_t, bad, eng_v, eng_t, door_v, door_t, bl_v, bl_t, bl_night, cam_v, cam_t
+    global buf, alive_t, dsp_ok, bye_t, bad, eng_v, eng_t, door_v, door_t, bl_v, bl_t, bl_night
     if uart is None or not uart.any():
         return
     data = uart.read()
@@ -206,8 +204,6 @@ def read_uart(now):
             eng_v = int(line[4:]); eng_t = now
         elif line.startswith(b"DOOR ") and line[5:] in (b"0", b"1"):
             door_v = int(line[5:]); door_t = now
-        elif line in (b"CAM 0", b"CAM 1"):
-            cam_v = int(line[4:]); cam_t = now
         elif line.startswith(b"BL "):
             n = num(line[3:])
             if n is not None:
@@ -222,7 +218,7 @@ def fresh(v, t, now):
 
 def cut():
     global alive_t, dsp_ok, bye_t, both_off_t, eng_v, eng_t, door_v, door_t
-    R2.value(0); R1.value(0); CAM.value(0); uart_off(); bl_stop()
+    R2.value(0); R1.value(0); uart_off(); bl_stop()
     alive_t = None; dsp_ok = False; bye_t = None; both_off_t = None
     eng_v = eng_t = door_v = door_t = None
     go("OFF")
@@ -326,8 +322,10 @@ def tick():
             else:  # PARK
                 if eng == 2:
                     want = "RUN"
-                elif key_on:
-                    want = "IGN"; blw_seen = blw
+                elif blw and time.ticks_diff(now, blw_on_t) >= EXT_BLW_CONFIRM:
+                    # llave en ON otra vez = BLOWER vivo 2 s, como en EXT. ENG 1 no cuenta: el ECM
+                    # sigue contestando el OBD unos segundos despues de apagar la llave.
+                    want = "IGN"; blw_seen = True
                 else:
                     want = "PARK"            # cerrar la puerta no lo saca
             if want != state:
@@ -347,7 +345,6 @@ def tick():
             cut()
 
     bl_update(now, ill)
-    CAM.value(1 if state not in ("OFF", "HALT") and (rev or fresh(cam_v, cam_t, now) == 1) else 0)
 
     if uart is not None and state != "HALT" and (aux_changed or state_dirty or time.ticks_diff(now, last_tx) >= 1000):
         last_tx = now; state_dirty = False

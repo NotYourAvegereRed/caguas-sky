@@ -25,7 +25,7 @@ LDAC and CVT pressures on my radio screen with a nice UI, but I just kept diggin
 | Folder | What it is |
 |---|---|
 | `dashboard/` | The screen: `index.html` + `src/` (HTML / CSS / JS, shown full screen by Chromium) and `service/` (`hud_service.py`: media, CVT / OBD reader, DSP control, screen level over a WebSocket). `kiosk.sh` starts the screen. |
-| `car/` | Car-side services: `rogue_can.py` (CAN radio emulator), `rp2040-link.py` (power link to the RP2040), `light_reader.py` (VEML7700), `phone-autoconnect.sh`, `wifi-prefer-home.sh`. |
+| `car/` | Car-side services: `rogue_can.py` (CAN radio emulator), `rp2040-link.py` (power link to the RP2040), `light_reader.py` (VEML7700), `cam_relay.py` (backup camera power), `phone-autoconnect.sh`, `wifi-prefer-home.sh`. |
 | `rp2040/` | MicroPython firmware for the RP2040-Zero power controller. |
 | `camilladsp/configs/` | CamillaDSP configs. Every `*.yml` here (except `test_*`) shows up as a preset on the DSP page. |
 | `systemd/` | Service and timer files, copies of what is installed in `/etc/systemd/system`. |
@@ -43,6 +43,7 @@ Everything starts by itself at boot. The live copies are linked, not copied: `~/
 | `rogue-can` | Factory radio emulator on the CAN bus |
 | `rp2040-link` | Power states, music fade, backlight |
 | `light-reader` | Light sensor → screen level |
+| `cam-relay` | Backup camera power (R3, GPIO26): on in P / N (from hud-service) and in reverse |
 | `wifi-prefer-home.timer` | Leaves the phone hotspot when home Wi-Fi is in range |
 | `phone-autoconnect` (user) | Reconnects the phone over Bluetooth |
 

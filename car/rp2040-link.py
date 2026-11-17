@@ -45,7 +45,6 @@
 #       al llegar el SHUTDOWN, va directo al BYE.
 # v0.9: los fades de la musica (3 s sin el loop principal) ya no frenan la pantalla: wait() sigue mandando BL
 #       (antes el welcome corria con el backlight en 0 si coincidia con el fade-in: 'se corta').
-#       Camara de reversa: hud_service pone "cam": 0/1 en caguas-bl -> 'CAM n' al RP2040 (firmware v0.10, GP26).
 import base64, json, os, socket, struct, subprocess, sys, time
 
 PORT = "/dev/ttyAMA1"
@@ -351,19 +350,19 @@ def door_state():
 
 
 def bl_state():
-    """(bl, night, cam) del archivo de hud_service, o (None, None, None) si esta viejo."""
+    """(bl, night) del archivo de hud_service, o (None, None) si esta viejo."""
     d = read_info(BL_FILE)
     if d is None:
-        return None, None, None
+        return None, None
     try:
         bl = max(0, min(100, int(d.get("bl"))))
     except (TypeError, ValueError):
-        return None, None, None
+        return None, None
     try:
         night = max(0, min(100, int(d.get("night"))))
     except (TypeError, ValueError):
         night = None
-    return bl, night, (d.get("cam") if d.get("cam") in (0, 1) else None)
+    return bl, night
 
 
 def bye_animation(keep_alive=None):
@@ -465,27 +464,23 @@ s = open_port()
 state = None; last_hb = 0; last_enf = 0; last_player = None; bad = 0
 eng = door = None; sent_eng = sent_door = None; last_info = 0; resume_tries = 0; resume_t = 0
 lights = {"ill": None, "rev": None}
-sent_bl = sent_bln = sent_cam = None; sent_bl_t = 0
+sent_bl = sent_bln = None; sent_bl_t = 0
 
 
 def send_bl(force=False):
     """BL / BLN al RP2040 si hud_service tiene un nivel fresco."""
-    global sent_bl, sent_bln, sent_cam, sent_bl_t
-    bl, night, cam = bl_state()
+    global sent_bl, sent_bln, sent_bl_t
+    bl, night = bl_state()
     if bl is None:
         return
     now = time.monotonic()
-    if force or (bl, night, cam) != (sent_bl, sent_bln, sent_cam) or now - sent_bl_t >= 1:   # 1 s: fresco en el RP2040
+    if force or (bl, night) != (sent_bl, sent_bln) or now - sent_bl_t >= 1:   # 1 s: fresco en el RP2040
         s.write(frame(f"BL {bl}"))
         if night is not None:
             s.write(frame(f"BLN {night}"))
-        if cam is not None:
-            s.write(frame(f"CAM {cam}"))
         if bl != sent_bl:
             log(f"pantalla {bl} %")
-        if cam != sent_cam:
-            log(f"camara {cam}")
-        sent_bl, sent_bln, sent_cam, sent_bl_t = bl, night, cam, now
+        sent_bl, sent_bln, sent_bl_t = bl, night, now
 
 
 def pump_bl():

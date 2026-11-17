@@ -199,3 +199,4 @@ body.hud-hide-bodies .bg-moon { display: none !important; }
 .kiosk, .kiosk * { cursor: none !important; }
 @keyframes hud-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .hud--wake .panel, .hud--wake .panel::after, .hud--wake .np__art, .hud--wake .cell { animation: none; } }
+
