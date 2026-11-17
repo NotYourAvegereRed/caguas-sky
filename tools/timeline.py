@@ -7,7 +7,7 @@ Shows where the time goes between "door opened" and the bye / poweroff, and betw
 t = seconds since the last change of the CAN 'POWER:' line (RADIO OFF = door opened), + = since the line above."""
 import json, re, subprocess, sys
 
-UNITS = ("rogue-can", "rp2040-link", "hud-service")
+UNITS = ("rogue-can", "rp2040-link", "hud-service", "cam-relay")
 KEEP = re.compile(r"POWER:|ENG .*DOOR| -> |SHUTDOWN|BYE|fade-|AVRCP|telefono|^bye|^welcome|^screen |^camera |^camara ")
 
 
@@ -35,7 +35,7 @@ if "--test" in sys.argv:
                     E(10.5, "rogue-can", "[ 1.50] POWER: RADIO OFF"), E(10.6, "hud-service", "noise"),
                     E(12.1, "hud-service", "bye (door): See you, Zen"), E(13, "x", [1, 2])])
     assert len(got) == 4 and got[2].split()[:2] == ["0.30", "+0.30"] and got[3].split()[:2] == ["2.10", "+1.80"], got
-    sys.exit("timeline: PASS")
+    print("timeline: PASS"); sys.exit(0)
 
 boot = next((a for a in sys.argv[1:] if a.lstrip("-").isdigit()), "0")
 cmd = ["journalctl", "-b", boot, "-o", "json", "--no-pager"] + [f"-u{u}" for u in UNITS]
