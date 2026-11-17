@@ -53,8 +53,8 @@
 @keyframes wl-pout { to { opacity: 0; transform: translateY(8px) scale(.98); } }
 #welcome.bye .wl__veil { animation: wl-bveil 4s linear both; }
 @keyframes wl-bveil { 0% { opacity: 0; } 30% { opacity: .62; } 100% { opacity: .62; } }   /* stays: the RP2040 fades the backlight to black */
-#welcome.bye .wl__greet { animation: wl-in 1.2s .8s cubic-bezier(.2,.8,.2,1) both; }
-#welcome.bye .wl__name  { animation: wl-in 1.4s 1s cubic-bezier(.2,.8,.2,1) both; }
+#welcome.bye .wl__greet { animation: wl-in 1.2s .3s cubic-bezier(.2,.8,.2,1) both; }   /* text right away: the door bye felt late */
+#welcome.bye .wl__name  { animation: wl-in 1.4s .45s cubic-bezier(.2,.8,.2,1) both; }
 #welcome.bye .wl__sub   { display: none; }
 #welcome.bye .wl__txt   { animation: none; }   /* the text stays while the backlight fades out */
 
