@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# rp2040-link v0.8: UART con el RP2040 + musica (AVRCP pause/play) + volumen estilo radio en CamillaDSP
+# rp2040-link v0.9: UART con el RP2040 + musica (AVRCP pause/play) + volumen estilo radio en CamillaDSP
 #
 # Volumen estilo headunit:
 #   - telefono al 100% (rutina de Samsung) y el sink de PipeWire FIJO en 1.0 (nunca mas alto: clipping digital)
@@ -43,6 +43,8 @@
 #       -> fade lento del backlight a 0 hecho por el RP2040 (BYE_FADE_S) -> BYE.
 #       El bye normal ahora es al abrir la puerta (PARK, lo hace hud_service): si la pantalla ya esta en 0
 #       al llegar el SHUTDOWN, va directo al BYE.
+# v0.9: los fades de la musica (3 s sin el loop principal) ya no frenan la pantalla: wait() sigue mandando BL
+#       (antes el welcome corria con el backlight en 0 si coincidia con el fade-in: 'se corta').
 import base64, json, os, socket, struct, subprocess, sys, time
 
 PORT = "/dev/ttyAMA1"
@@ -207,10 +209,24 @@ def sink_full():
          "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "1.0"])
 
 
+pump = lambda: None                 # el servicio lo cambia por pump_bl (modo test: nada)
+
+
+def wait(sec):
+    """sleep, pero el nivel de pantalla sigue llegando al RP2040"""
+    end = time.monotonic() + sec
+    while True:
+        pump()
+        left = end - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(0.05, left))
+
+
 def ramp(a, b):
     for i in range(1, FADE_STEPS + 1):
         dsp.set_vol(a + (b - a) * i / FADE_STEPS)
-        time.sleep(FADE_TIME / FADE_STEPS)
+        wait(FADE_TIME / FADE_STEPS)
 
 
 def fade_in():
@@ -282,12 +298,13 @@ def audio_flowing(p):
 def start_music():
     global last_player
     last_player = player_cmd("Play")
-    time.sleep(FADE_IN_DELAY)
+    wait(FADE_IN_DELAY)
     fade_in()
 
 
 def stop_music(with_fade):
     global last_player
+    pump()
     fade_out(with_fade)
     last_player = player_cmd("Pause")
 
@@ -447,22 +464,33 @@ s = open_port()
 state = None; last_hb = 0; last_enf = 0; last_player = None; bad = 0
 eng = door = None; sent_eng = sent_door = None; last_info = 0; resume_tries = 0; resume_t = 0
 lights = {"ill": None, "rev": None}
-sent_bl = sent_bln = None
+sent_bl = sent_bln = None; sent_bl_t = 0
 
 
 def send_bl(force=False):
     """BL / BLN al RP2040 si hud_service tiene un nivel fresco."""
-    global sent_bl, sent_bln
+    global sent_bl, sent_bln, sent_bl_t
     bl, night = bl_state()
     if bl is None:
         return
-    if force or bl != sent_bl or night != sent_bln:
+    now = time.monotonic()
+    if force or (bl, night) != (sent_bl, sent_bln) or now - sent_bl_t >= 1:   # 1 s: fresco en el RP2040
         s.write(frame(f"BL {bl}"))
         if night is not None:
             s.write(frame(f"BLN {night}"))
         if bl != sent_bl:
             log(f"pantalla {bl} %")
-        sent_bl, sent_bln = bl, night
+        sent_bl, sent_bln, sent_bl_t = bl, night, now
+
+
+def pump_bl():
+    try:
+        send_bl()
+    except (serial.SerialException, OSError):
+        pass                                             # el loop principal reabre el puerto
+
+
+pump = pump_bl
 
 
 def write_car(st):
@@ -471,7 +499,7 @@ def write_car(st):
     except OSError as e:
         log(f"no pude escribir {CAR_FILE}: {e}")
 sink_full()
-log("rp2040-link v0.8 arriba")
+log("rp2040-link v0.9 arriba")
 while True:
     now = time.monotonic()
     try:

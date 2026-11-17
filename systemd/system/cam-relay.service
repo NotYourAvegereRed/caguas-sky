@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup camera power: R3 on GPIO26, warm in P / N and in reverse, only with the engine running
+
+[Service]
+User=zen
+ExecStart=/usr/bin/python3 /usr/local/bin/cam_relay.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

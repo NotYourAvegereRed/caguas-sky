@@ -436,8 +436,9 @@ function placeVol() {
 const isOpen = () => volEl.classList.contains("vol--on");
 function showVol() {
   if (VOL.db == null) return;                                  // no CamillaDSP: nothing to control
-  if (volEl.style.display === "none") { placeVol(); volEl.style.display = "block"; }
-  requestAnimationFrame(() => volEl.classList.add("vol--on"));
+  // reflow between display:block and vol--on, so the entry slide always plays (it was skipped from the websocket)
+  if (volEl.style.display === "none") { placeVol(); volEl.style.display = "block"; void volEl.offsetWidth; }
+  volEl.classList.add("vol--on");
   clearTimeout(VOL.hideT); VOL.hideT = setTimeout(hideVol, 3000);
 }
 function hideVol() {
@@ -554,6 +555,7 @@ function startLive() {
         }
         if ("media" in d) setMedia(d.media);
         if ("vol" in d) setVol(d.vol);
+        if (d.vol_show) showVol();                 // VOL +/- on the steering wheel: same pill, hides after 3 s
         if ("eng" in d || "alerts" in d || "dtcs" in d || "dtc_clear" in d) window.dispatchEvent(new CustomEvent("hud-msg", { detail: d }));
         if ("dsp" in d || "dsp_lv" in d) window.dispatchEvent(new CustomEvent("hud-dsp", { detail: d }));   // dsp.js
         if ("welcomed" in d) setWelcomed(d.welcomed);
@@ -561,6 +563,7 @@ function startLive() {
         if ("car" in d && d.car && !["PARK", "SHUTDOWN"].includes(d.car)) window.welcome?.unbye();   // came back
         if (d.welcome) window.welcome?.play(d.welcome);
         if (d.bye) window.welcome?.bye(d.bye);
+        if ("cam" in d) window.dispatchEvent(new CustomEvent("hud-cam", { detail: d.cam }));   // camera.js
       } catch {}
     };
     ws.onclose = () => {
@@ -583,6 +586,7 @@ function setWelcomed(w) {
   else if (w === true && welcomeHold) { welcomeHold = false; window.welcome?.hold(false); if (!window.welcome?.playing) WAKE.armed = true; }
 }
 
+if (location.hostname === "localhost") document.documentElement.classList.add("kiosk");   // the car's own screen: no mouse cursor
 CONFIG.demo ? startDemo() : startLive();
 
 window.hud = { setCvt, setMedia, setVol, holdWake, sweep: startSweep, isHeld: () => welcomeHold, send: (c) => sendCmd(c) };

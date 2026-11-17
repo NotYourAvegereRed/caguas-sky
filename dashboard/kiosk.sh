@@ -30,6 +30,7 @@ while true; do
   "$CHR" --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars \
     --no-first-run --password-store=basic --overscroll-history-navigation=0 \
     --disable-pinch --disable-session-crashed-bubble --check-for-update-interval=31536000 \
+    --use-fake-ui-for-media-stream \
     "$URL"
   echo "chromium salió ($?), reabriendo en 2s"; sleep 2
 done

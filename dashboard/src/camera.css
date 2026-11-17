@@ -1,0 +1,12 @@
+/* Backup camera: full screen over everything (above welcome / bye) while cam = on. */
+/* Leaving R: .3 s fade + it eases away (scale 1.06). Entering R: faster, .18 s (the picture matters more). */
+#cam { position: fixed; inset: 0; z-index: 2147483000; background: #000; opacity: 0; transform: scale(1.06);
+  transition: opacity .3s ease-in, transform .3s ease-in; pointer-events: none; }
+#cam.cam--on { opacity: 1; transform: none; transition-duration: .18s; pointer-events: auto; }
+#cam[hidden] { display: none !important; }
+/* The 720x480 (4:3) picture is stretched to the 1024x600 screen, and the guides are drawn in that same box. */
+.cam__v { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; background: #000; }
+.cam__g { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cam__g line { stroke-width: 6; stroke-linecap: round; }
+.cam__msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #e8ecf5;
+  font: 600 22px/1.3 system-ui, sans-serif; text-align: center; text-shadow: 0 1px 3px #000; }
