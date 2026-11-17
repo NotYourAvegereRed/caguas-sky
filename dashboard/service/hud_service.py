@@ -131,6 +131,7 @@ WELCOME_WAIT_S = 20.0
 PAGE_SETTLE_S = 2.0       # page just connected (Chromium still loading / first paint): the welcome waits this long
 CAM_SHOW_S = 8.0          # reverse camera stays on screen this long after leaving R (like the factory radio)
 CAM_HOLD_S = 10.0         # and stays powered (warm) this long after leaving P / N / R
+CAM_R_CONFIRM_S = 0.5     # R must hold this long before the camera shows: P -> D passes through R
 PARK_BYE_DELAY_S = 1.5    # door opened (PARK): let the music fade first
 BYE_SHOW_S = 4.5          # then "Good night, Zen" on screen this long
 BYE_FADE_S = 2.5          # then the backlight fades to black (the Pi stays on until ACC goes away)     # car in RUN but no page connected: give up on the welcome and show the screen
@@ -521,6 +522,7 @@ class Display:
         self.page_t = None          # since when a page is connected
         self.cam = 0                # reverse camera: 0 off, 1 warm (powered + capturing, hidden), 2 on screen
         self.cam_t = self.rev_t = -1e9
+        self.r_since = None         # R (wire or gear) seen without a break since then
         self.ensure_cfg_file()
 
     # ---------- settings ----------
@@ -609,11 +611,13 @@ class Display:
     def update_cam(self, gear, rev, now):
         """Camera powered and capturing in P / N (you always pass through one of them on the way to R), so the
         picture is already there in R. On screen with the reverse wire (RP2040 REV) or the TCM gear, whichever
-        comes first. cam_relay.py powers the camera (R3, GPIO26) from the 'cam' in BL_FILE."""
-        if rev == 1 or gear == "R":
+        comes first, once it held CAM_R_CONFIRM_S. cam_relay.py powers the camera (R3, GPIO26) from the 'cam' in BL_FILE."""
+        in_r = rev == 1 or gear == "R"
+        self.r_since = (now if self.r_since is None else self.r_since) if in_r else None
+        if in_r and now - self.r_since >= CAM_R_CONFIRM_S:
             self.rev_t = now
         show = now - self.rev_t < CAM_SHOW_S
-        if show or gear in ("P", "N"):
+        if show or in_r or gear in ("P", "N"):
             self.cam_t = now
         cam = 2 if show else 1 if now - self.cam_t < CAM_HOLD_S else 0
         changed, self.cam = cam != self.cam, cam
