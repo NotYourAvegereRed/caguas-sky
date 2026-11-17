@@ -436,8 +436,9 @@ function placeVol() {
 const isOpen = () => volEl.classList.contains("vol--on");
 function showVol() {
   if (VOL.db == null) return;                                  // no CamillaDSP: nothing to control
-  if (volEl.style.display === "none") { placeVol(); volEl.style.display = "block"; }
-  requestAnimationFrame(() => volEl.classList.add("vol--on"));
+  // reflow between display:block and vol--on, so the entry slide always plays (it was skipped from the websocket)
+  if (volEl.style.display === "none") { placeVol(); volEl.style.display = "block"; void volEl.offsetWidth; }
+  volEl.classList.add("vol--on");
   clearTimeout(VOL.hideT); VOL.hideT = setTimeout(hideVol, 3000);
 }
 function hideVol() {
