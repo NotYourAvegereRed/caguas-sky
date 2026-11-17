@@ -6,6 +6,7 @@ HUD page over a local WebSocket. Also receives play/pause/next/prev from the tou
                        page -> server: {"cmd": "toggle" | "play" | "pause" | "next" | "prev"}
                                        {"cmd": "vol", "db": -23.5}   (touch volume slider)
                        server -> page: {"vol": {db, mute, min_db, max_db} | null}  (CamillaDSP main volume)
+                                       + "vol_show": true when it came from the steering wheel (page shows the pill)
 
 media = {status, title, artist, album, position_ms, duration_ms, codec, art}
   art = data URI of the album cover from the Spotify Web API ("currently playing"), cached on disk.
@@ -937,7 +938,7 @@ class Hud:
             if self.vol.db is None or self.vol.mute:      # car off / fading: buttons do nothing
                 return
             await self.vol.set_db(self.vol.db + (step if b == "VOL +" else -step))
-            await self.broadcast_vol()
+            await self.broadcast_vol(show=True)
         elif st == "pressed" and b in ("NEXT", "PREV", "SOURCE"):
             await self.command({"NEXT": "next", "PREV": "prev", "SOURCE": "toggle"}[b])
 
@@ -1268,9 +1269,9 @@ class Hud:
                 await self.broadcast_vol()
             await asyncio.sleep(0.3)
 
-    async def broadcast_vol(self, skip=None):
+    async def broadcast_vol(self, skip=None, show=False):
         if self.clients:
-            msg = json.dumps({"vol": self.vol.state()})
+            msg = json.dumps({"vol": self.vol.state(), **({"vol_show": True} if show else {})})
             await asyncio.gather(*(self._send(c, msg) for c in list(self.clients) if c is not skip))
 
     async def _send(self, ws, msg):

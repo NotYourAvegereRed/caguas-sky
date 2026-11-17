@@ -554,6 +554,7 @@ function startLive() {
         }
         if ("media" in d) setMedia(d.media);
         if ("vol" in d) setVol(d.vol);
+        if (d.vol_show) showVol();                 // VOL +/- on the steering wheel: same pill, hides after 3 s
         if ("eng" in d || "alerts" in d || "dtcs" in d || "dtc_clear" in d) window.dispatchEvent(new CustomEvent("hud-msg", { detail: d }));
         if ("dsp" in d || "dsp_lv" in d) window.dispatchEvent(new CustomEvent("hud-dsp", { detail: d }));   // dsp.js
         if ("welcomed" in d) setWelcomed(d.welcomed);
