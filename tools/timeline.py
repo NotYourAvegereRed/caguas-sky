@@ -8,7 +8,7 @@ t = seconds since the last change of the CAN 'POWER:' line (RADIO OFF = door ope
 import json, re, subprocess, sys
 
 UNITS = ("rogue-can", "rp2040-link", "hud-service", "cam-relay")
-KEEP = re.compile(r"POWER:|ENG .*DOOR| -> |SHUTDOWN|BYE|fade-|AVRCP|telefono|^bye|^welcome|^screen |^camera |^camara ")
+KEEP = re.compile(r"POWER:|ENG .*DOOR| -> |SHUTDOWN|BYE|fade-|AVRCP|telefono|^bye|^welcome|^screen |^camera |^camara |^REV ")
 
 
 def timeline(entries):

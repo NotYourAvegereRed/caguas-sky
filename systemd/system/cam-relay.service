@@ -1,5 +1,5 @@
 [Unit]
-Description=Backup camera: R3 on GPIO26 while in reverse (+8 s), /dev/shm/caguas-cam for the page
+Description=Backup camera power: R3 on GPIO26, warm in P / N and in reverse, only with the engine running
 
 [Service]
 User=zen
