@@ -146,6 +146,8 @@ body.pg-drag .pg { transition: none; }
 .t-clear i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(255,45,61,.35); }
 .t-clear.hold i { width: 100%; transition: width 2s linear; }
 #t-clearmsg { margin-top: 8px; min-height: 14px; }
+.t-scan { border-color: var(--line2); color: var(--ink); } .t-scan:active { background: var(--panel2); }
+.t-scan + .t-clear { margin-top: 8px; }
 
 /* alert banner */
 .t-toast { position: absolute; left: 262px; top: 58px; width: 500px; height: 72px; display: flex; align-items: center; gap: 14px; padding: 0 22px 0 18px;

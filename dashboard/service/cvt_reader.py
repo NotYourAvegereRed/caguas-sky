@@ -33,7 +33,8 @@ RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
 Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
-voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
+voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs). 2026-11-17: also on demand, CHECK FOR CODES
+on the CODES tab (request_scan, read-only, any gear; the result text goes out like the clear's: clear_msg). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
 """
@@ -477,6 +478,7 @@ class CvtReader:
         self._dtcs, self.dtc_version, self._dtc_left, self._dtc_run = [], 0, DTC_TRIES, None
         self._scans = collections.deque(maxlen=20)     # every scan result, for the code history (pop_scans)
         self._clear_req, self.clear_msg, self.clear_version = False, None, 0
+        self._scan_req = False
 
     def _write_status(self, now):
         """engine status for rp2040-link (/dev/shm/caguas-engine), at most every ENGINE_WRITE_S"""
@@ -520,6 +522,10 @@ class CvtReader:
         while self._scans:
             out.append(self._scans.popleft())
         return out
+
+    def request_scan(self):
+        """page asked for a scan now (CHECK FOR CODES); the reader thread does it, result in clear_msg / clear_version"""
+        self._scan_req = True
 
     def request_clear(self):
         """page asked to clear the trouble codes; the reader thread does it (clear_msg / clear_version = result)"""
@@ -671,6 +677,15 @@ class CvtReader:
             self._scans.append(found)
         return len(answered) == len(DTC_MODULES)
 
+    def _scan_dtcs(self, ser):
+        """CHECK FOR CODES: one scan now. Returns the text for the page."""
+        v = self.dtc_version
+        every = self._read_dtcs(ser)
+        if self.dtc_version == v:
+            return "NO ANSWER · ENGINE OFF?"
+        n = len(self.dtcs())
+        return "SCANNED · " + ("NO CODES" if not n else f"{n} CODE{'S' * (n > 1)}") + ("" if every else " · A MODULE DID NOT ANSWER")
+
     def _clear_dtcs(self, ser):
         """Clear the stored codes of every module that has one. Returns the text for the page."""
         now = time.monotonic()
@@ -730,6 +745,12 @@ class CvtReader:
                     self._dtc_left -= 1
                 now = time.monotonic()
                 dtc_next = now + 10
+            if self._scan_req:                     # the page's CHECK FOR CODES button
+                self._scan_req = False
+                msg = self._scan_dtcs(ser)
+                print(f"DTC scan: {msg}", flush=True)
+                self.clear_msg, self.clear_version = msg, self.clear_version + 1
+                now = time.monotonic()
             if self._clear_req:                    # the page's CLEAR button
                 self._clear_req = False
                 msg = self._clear_dtcs(ser)

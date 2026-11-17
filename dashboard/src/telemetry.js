@@ -17,7 +17,7 @@ const WEAR_MAX = 200;              // your own limit for the CVT fluid wear bar 
 const LOCK_TEXT = { open: "Unlocked", engaging: "Engaging", releasing: "Releasing", locked: "Locked", coast: "Locked · coast" };
 
 let E = null, C = null, ALERTS = [];
-let CLEAR_MSG = "";                                  // result of the last CLEAR (hud-service: {dtc_clear})
+let CLEAR_MSG = "";                                  // result of the last CHECK / CLEAR (hud-service: {dtc_clear})
 let DTCS = [], HIST = [], SCANS = 0;                 // codes from the last scan, code history, scans done (0 = not yet)
 let PWD = {}, pwTs = 0;                              // power fields (eng_nm, hp, ratio...), from whichever message is newer
 const PW = (k) => performance.now() - pwTs < 3000 ? PWD[k] ?? null : null;
@@ -132,6 +132,7 @@ VIEWS.codes = () => {
   const tr = (d) => `<tr class="${now.has(key(d)) ? "now" : ""}${d.quiet ? " t-quiet" : ""}"><td class="n">${d.code}</td><td>${d.mod}${d.quiet ? " · common" : ""}</td><td>${d.first ?? "--"}</td><td>${d.last ?? "--"}</td><td class="n">${d.n ?? "--"}</td></tr>`;
   return `<div class="t-grid" style="grid-template-columns:1fr 2.2fr;height:450px">
     <div class="t-col" style="--i:0"><h3>NOW · ECM TCM BCM</h3>${cur}
+      <div class="t-clear t-scan" id="t-scan" role="button"><span>CHECK FOR CODES</span></div>
       <div class="t-clear"${DTCS.length ? "" : " hidden"} id="t-clear" role="button"><i></i><span>HOLD 2 S TO CLEAR</span></div>
       <div class="t-mini" id="t-clearmsg">${CLEAR_MSG || (DTCS.length ? "in P · car stopped" : "")}</div></div>
     <div class="t-col" style="--i:1"><h3>CODE HISTORY</h3><table class="t-ptab t-ctab"><tr><th>CODE</th><th>MODULE</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>SCANS</th></tr>
@@ -324,6 +325,11 @@ const HOLD_MS = 2000;
 let holdT = 0;
 const holdEnd = () => { clearTimeout(holdT); $("t-clear")?.classList.remove("hold"); };
 content.addEventListener("pointerdown", (e) => {
+  if (e.target.closest("#t-scan")) {                   // read-only: a tap is enough
+    if (CLEAR_MSG === "SCANNING...") return;
+    CLEAR_MSG = "SCANNING..."; $("t-clearmsg").textContent = CLEAR_MSG; window.hud?.send?.({ cmd: "dtc_scan" });
+    return;
+  }
   const b = e.target.closest("#t-clear"); if (!b) return;
   b.classList.add("hold");
   holdT = setTimeout(() => { holdEnd(); CLEAR_MSG = "CLEARING..."; $("t-clearmsg").textContent = CLEAR_MSG; window.hud?.send?.({ cmd: "dtc_clear" }); }, HOLD_MS);

@@ -73,6 +73,12 @@ assert r._read_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) 
 # car asleep: nothing answers -> not counted as a scan
 r = c.CvtReader()
 assert r._read_dtcs(FakeElm({})) is False and r.dtc_version == 0
+# CHECK FOR CODES: read-only, any gear, text for the page
+r = c.CvtReader()
+elm = FakeElm(ROGUE)
+assert r._scan_dtcs(elm) == "SCANNED · 2 CODES" and not any(s.startswith(("14", "04")) for s in elm.sent)
+assert r._scan_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) == "SCANNED · NO CODES · A MODULE DID NOT ANSWER"
+assert r._scan_dtcs(FakeElm({})) == "NO ANSWER · ENGINE OFF?"
 print("dtc ok")
 
 # ---- alerts: CVT fluid 100 C, voltage 11.7 / 11.8 V ----
