@@ -610,10 +610,16 @@ class Display:
             return g["bye_night"] if (h >= 18 or h < 5) else g["bye"]
         return g["morning"] if 5 <= h < 12 else g["afternoon"] if 12 <= h < 18 else g["evening"]
 
-    def update_cam(self, gear, rev, now):
+    def update_cam(self, gear, rev, now, car=None):
         """Camera powered and capturing in P / N (you always pass through one of them on the way to R), so the
         picture is already there in R. On screen with the reverse wire (RP2040 REV) or the TCM gear, whichever
-        comes first, once it held CAM_R_CONFIRM_S. cam_relay.py powers the camera (R3, GPIO26) from the 'cam' in BL_FILE."""
+        comes first, once it held CAM_R_CONFIRM_S. cam_relay.py powers the camera (R3, GPIO26) from the 'cam' in BL_FILE.
+        Only with the engine running: a known car state other than RUN (engine off, door bye) ends it at once,
+        so R -> P -> key off -> door within CAM_SHOW_S plays the camera exit and then the bye."""
+        if car is not None and car != "RUN":
+            self.rev_t = self.cam_t = -1e9; self.r_since = None
+            changed, self.cam = self.cam != 0, 0
+            return changed
         in_r = rev == 1 or gear == "R"
         self.r_since = (now if self.r_since is None else self.r_since) if in_r else None
         if in_r and now - self.r_since >= CAM_R_CONFIRM_S:
@@ -633,10 +639,10 @@ class Display:
         self.update_night(now)
         out = []
         self.page_t = (self.page_t or now) if has_page else None
-        if self.update_cam(gear, self.read_fresh(LIGHTS_FILE, "rev", lambda v: v in (0, 1)), now):
-            out.append({"cam": self.cam})
-            print(f"camera {('off', 'warm', 'on screen')[self.cam]}", flush=True)
         car = self.read_fresh(CAR_FILE, "state", lambda v: isinstance(v, str), test=False)
+        if self.update_cam(gear, self.read_fresh(LIGHTS_FILE, "rev", lambda v: v in (0, 1)), now, car):
+            out.append({"cam": self.cam})                # before a bye in this same tick: camera exit first
+            print(f"camera {('off', 'warm', 'on screen')[self.cam]}", flush=True)
         if car is not None:
             self.seen_car = True
         self.car = car
