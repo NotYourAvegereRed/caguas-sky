@@ -49,7 +49,7 @@ Screen (real backlight: RP2040 firmware v0.9 PWMs the Santek's backlight driver 
     a change must hold delay_s; an alert lifts it to 100. Page gets {"welcomed": bool} (holds the normal
     engine-start animation until the welcome ran). Bye: /usr/local/bin/caguas-bye (run by rp2040-link at
     shutdown) writes /dev/shm/caguas-bye -> server -> page {"bye": {name, greet}} -> page ends in black;
-    rp2040-link then sends BL 0. Door opened with the engine off (PARK): the music fades, then the same bye,
+    rp2040-link then sends BL 0. Door opened with the engine off (PARK): the same bye while the music fades,
     then the backlight fades to 0 (BYE_FADE_S) and stays off while the Pi waits for ACC to end; key ON again
     brings the screen back. Settings in ~/.config/hud/display.json (created with the defaults, re-read
     when it changes): {"night_pct": 40, "delay_s": 3, "name": "Zen", "greet": {"morning", "afternoon",
@@ -134,8 +134,8 @@ PAGE_SETTLE_S = 2.0       # page just connected (Chromium still loading / first 
 CAM_SHOW_S = 8.0          # reverse camera stays on screen this long after leaving R (like the factory radio)
 CAM_HOLD_S = 10.0         # and stays powered (warm) this long after leaving P / N / R
 CAM_R_CONFIRM_S = 0.5     # R must hold this long before the camera shows: P -> D passes through R
-PARK_BYE_DELAY_S = 1.5    # door opened (PARK): let the music fade first
-BYE_SHOW_S = 4.5          # then "Good night, Zen" on screen this long
+PARK_BYE_DELAY_S = 0.3    # door opened (PARK): bye almost at once, while the music fades (car 2026-11-17: 1.5 felt slow)
+BYE_SHOW_S = 3.2          # then "Good night, Zen" on screen this long (its text is fully in at 2.4 s, welcome.css)
 BYE_FADE_S = 2.5          # then the backlight fades to black (the Pi stays on until ACC goes away)     # car in RUN but no page connected: give up on the welcome and show the screen
 SWC_ADDR = ("127.0.0.1", 5005)          # events from rogue_can.py
 CLUSTER_ADDR = ("127.0.0.1", 5006)      # track text to rogue_can.py
