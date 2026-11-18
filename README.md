@@ -29,7 +29,7 @@ LDAC and CVT pressures on my radio screen with a nice UI, but I just kept diggin
 | `rp2040/` | MicroPython firmware for the RP2040-Zero power controller. |
 | `camilladsp/configs/` | CamillaDSP configs. Every `*.yml` here (except `test_*`) shows up as a preset on the DSP page. |
 | `systemd/` | Service and timer files, copies of what is installed in `/etc/systemd/system`. |
-| `tools/` | Test and diagnostic scripts (`pi_usage.py`, `gpu_usage.py`, `lux_test.py`, `dtc_probe.py`, `timeline.py`: door / key -> bye / music timing from the journal, ...). |
+| `tools/` | Test and diagnostic scripts (`pi_usage.py`, `gpu_usage.py`, `lux_test.py`, `dtc_probe.py`, `isotp_decode.py`: decode a candump of a scan tool session, `timeline.py`: door / key -> bye / music timing from the journal, ...). |
 
 ## How it runs on the Pi
 
