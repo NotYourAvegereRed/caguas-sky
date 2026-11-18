@@ -126,6 +126,8 @@ BL_FILE = os.environ.get("HUD_BL_FILE", "/dev/shm/caguas-bl")        # read by r
 CAR_FILE = os.environ.get("HUD_CAR_FILE", "/dev/shm/caguas-car")     # RP2040 state, written by rp2040-link
 BYE_FILE = os.environ.get("HUD_BYE_FILE", "/dev/shm/caguas-bye")     # written by /usr/local/bin/caguas-bye
 TRIPS_FILE = os.path.expanduser(os.environ.get("HUD_TRIPS_FILE", "~/.local/share/hud/trips.csv"))
+SAMPLES_FILE = os.path.expanduser(os.environ.get("HUD_SAMPLES_FILE", "~/.local/share/hud/drive_samples.csv"))  # car/telemetry.py uploads it
+SAMPLE_EVERY_S = 5.0      # one drive sample per 5 s (~540 rows for a 45 min drive): enough for a drive chart
 DTC_FILE = os.path.expanduser(os.environ.get("HUD_DTC_FILE", "~/.local/share/hud/dtcs.json"))
 DTC_QUIET = {"U1000", "U1001"}   # CAN communication history codes: common and harmless -> code history only, no badge
 NO_CAR_GRACE_S = 25.0     # no RP2040 state after this long (bench): show the screen anyway
@@ -718,9 +720,15 @@ class Display:
 class Trip:
     """Drive summary: RUN -> EXT. Speed, CVT temp and rpm from the CVT stream (main screen polling, nothing
     extra asked of the car), oil / coolant from the background alert reads. Shown in place of the CVT panel
-    while the engine is off (EXT / PARK); one CSV line per trip in TRIPS_FILE (~100 bytes each)."""
+    while the engine is off (EXT / PARK); one CSV line per trip in TRIPS_FILE (~100 bytes each).
+    During a trip, one line every SAMPLE_EVERY_S in SAMPLES_FILE (the main screen gauges + oil / coolant), tagged
+    with the trip's start ("drive" = the same text as "start" in TRIPS_FILE), for the Drive view chart in the sheet."""
     FIELDS = ["start", "end", "duration_min", "distance_km", "avg_kmh", "max_kmh", "cvt_max_c", "cvt_avg_c",
               "oil_max_c", "coolant_max_c", "rpm_max", "alerts"]
+    SAMPLE_FIELDS = ["time", "drive", "speed_kmh", "rpm", "gear", "cvt_c", "pri_mpa", "sec_mpa", "line_mpa",
+                     "slip_rpm", "tcc_a", "oil_c", "coolant_c"]
+    CVT_KEYS = ["speed_kmh", "rpm", "gear", "temp_c", "p_primary_actual_mpa", "p_secondary_actual_mpa",
+                "p_line_target_mpa", "slip_rpm", "tcc_a"]
     MIN_S, MIN_KM = 60.0, 0.1     # shorter than both (a stall, a test crank): not a trip
 
     def __init__(self):
@@ -732,7 +740,7 @@ class Trip:
     def _new(self):
         return {"t0": time.monotonic(), "start": time.time(), "km": 0.0, "max_kmh": 0, "cvt_sum": 0.0,
                 "cvt_s": 0.0, "cvt_max": None, "oil_max": None, "cool_max": None, "rpm_max": 0, "alerts": 0,
-                "last_t": None}
+                "last_t": None, "next_sample": 0.0, "oil": None, "cool": None}
 
     @staticmethod
     def _num(v):
@@ -754,15 +762,34 @@ class Trip:
             c["cvt_max"] = t if c["cvt_max"] is None else max(c["cvt_max"], t)
         if r is not None:
             c["rpm_max"] = max(c["rpm_max"], r)
+        if now >= c["next_sample"]:
+            c["next_sample"] = now + SAMPLE_EVERY_S
+            drive = time.strftime("%Y-%m-%d %H:%M", time.localtime(c["start"]))
+            vals = [d.get(k) for k in self.CVT_KEYS] + [c["oil"], c["cool"]]
+            self._append(SAMPLES_FILE, self.SAMPLE_FIELDS,
+                         [time.strftime("%Y-%m-%d %H:%M:%S"), drive] + ["" if v is None else v for v in vals])
+
+    @staticmethod
+    def _append(path, fields, row):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            new = not os.path.exists(path)
+            with open(path, "a") as f:
+                if new:
+                    f.write(",".join(fields) + "\n")
+                f.write(",".join(str(v) for v in row) + "\n")
+        except OSError as e:
+            print(f"could not write {path}: {e}", flush=True)
 
     def eng(self, e):
         c = self.cur
         if c is None or not e:
             return
-        for key, slot in (("oil_c", "oil_max"), ("coolant_c", "cool_max")):
+        for key, slot, last in (("oil_c", "oil_max", "oil"), ("coolant_c", "cool_max", "cool")):
             v = self._num(e.get(key))
             if v is not None:
                 c[slot] = v if c[slot] is None else max(c[slot], v)
+                c[last] = v                                         # latest value, for the drive samples
 
     def alerts(self, on):
         if self.cur is not None and on and not self.alert_on:

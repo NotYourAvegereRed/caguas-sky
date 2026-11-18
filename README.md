@@ -44,7 +44,7 @@ Everything starts by itself at boot. The live copies are linked, not copied: `~/
 | `rp2040-link` | Power states, music fade, backlight |
 | `light-reader` | Light sensor → screen level |
 | `cam-relay` | Backup camera power (R3, GPIO26): on in P / N (from hud-service) and in reverse, only with the engine running (never while cranking) |
-| `telemetry` | Pi temperature every 30 s to a local CSV, uploaded to the Setup Log's "Pi Temps" tab when there is internet |
+| `telemetry` | Uploads to the Setup Log when there is internet: Pi temperature every 30 s ("Pi Temps"), each drive ("Drives", "Weekly") and the gauges every 5 s during a drive ("Drive Samples", "Drive View") |
 | `wifi-prefer-home.timer` | Leaves the phone hotspot when home Wi-Fi is in range |
 | `phone-autoconnect` (user) | Reconnects the phone over Bluetooth |
 

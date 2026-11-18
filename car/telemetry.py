@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""telemetry.py v1.1 (2026-11-18): v1.1: one upload at a time (file lock): a manual "send" while the service
+"""telemetry.py v1.2 (2026-11-18): v1.2: also uploads the drives (hud_service trips.csv -> "Drives") and the drive
+samples every 5 s (drive_samples.csv -> "Drive Samples"); a CSV header line is skipped.
+v1.1: one upload at a time (file lock): a manual "send" while the service
 uploads sent the same lines twice.
 v1.0 (2026-11-18): Pi temperature log -> Google Sheet ("Pi Temps" tab of the Setup Log).
 
@@ -28,6 +30,10 @@ SENT = os.path.join(DIR, "temps.sent")       # number of CSV lines already in th
 CFG = os.path.expanduser("~/.config/telemetry.json")
 CAR_FILE = "/dev/shm/caguas-car"             # rp2040-link: {"t", "state"}
 SHEET = "Pi Temps"
+HUD = os.path.expanduser("~/.local/share/hud")
+SOURCES = [(CSV, SENT, SHEET),                                                   # (CSV, sent counter, tab)
+           (os.path.join(HUD, "trips.csv"), os.path.join(DIR, "drives.sent"), "Drives"),
+           (os.path.join(HUD, "drive_samples.csv"), os.path.join(DIR, "samples.sent"), "Drive Samples")]
 
 
 def vc(*args):
@@ -72,10 +78,12 @@ def pending(path=CSV, sent_path=SENT):
         lines = open(path).read().splitlines()
     except OSError:
         return [], sent
+    if sent == 0 and lines and not lines[0][:1].isdigit():
+        sent = 1                                     # header line ("start,end,..."): not data
     return [l.split(",") for l in lines[sent:sent + BATCH]], sent
 
 
-def upload(post, path=CSV, sent_path=SENT):
+def upload(post, path=CSV, sent_path=SENT, sheet=SHEET):
     """post(payload) -> response text. Returns rows sent (0 = nothing pending), or raises on failure."""
     os.makedirs(os.path.dirname(sent_path), exist_ok=True)
     with open(sent_path + ".lock", "w") as lock:
@@ -83,12 +91,23 @@ def upload(post, path=CSV, sent_path=SENT):
         rows, sent = pending(path, sent_path)
         if not rows:
             return 0
-        if post({"sheet": SHEET, "rows": rows}).strip() != "ok":
+        if post({"sheet": sheet, "rows": rows}).strip() != "ok":
             raise RuntimeError("the sheet did not answer ok")
         with open(sent_path + ".tmp", "w") as f:
             f.write(str(sent + len(rows)))
         os.replace(sent_path + ".tmp", sent_path)
         return len(rows)
+
+
+def upload_all(post, sources=SOURCES):
+    """every source until nothing is pending -> {tab: lines sent}"""
+    out = {}
+    for path, sent_path, sheet in sources:
+        n = total = upload(post, path, sent_path, sheet)
+        while n == BATCH:
+            n = upload(post, path, sent_path, sheet); total += n
+        out[sheet] = total
+    return out
 
 
 def http_post(cfg):
@@ -115,18 +134,18 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "send":
         if not cfg:
             sys.exit(f"no url / secret in {CFG}")
-        print(f"sent {upload(http_post(cfg))} lines")
+        print(upload_all(http_post(cfg)))
         return
-    print(f"telemetry v1.1: {CSV} every {SAMPLE_S} s, upload {'on' if cfg else f'off (no {CFG})'}", flush=True)
+    print(f"telemetry v1.2: {CSV} every {SAMPLE_S} s, upload {'on' if cfg else f'off (no {CFG})'}", flush=True)
     next_up, backoff, failing = 0.0, UPLOAD_S, False
     while True:
         append(sample())
         now = time.monotonic()
         if cfg and now >= next_up:
             try:
-                n = upload(http_post(cfg))
-                if failing or n:
-                    print(f"uploaded {n} lines", flush=True)
+                n = upload_all(http_post(cfg))
+                if failing or any(n.values()):
+                    print(f"uploaded {n}", flush=True)
                 backoff, failing = UPLOAD_S, False
             except Exception as e:                   # no internet, DNS, timeout, script error: keep the lines, retry later
                 if not failing:
@@ -162,6 +181,11 @@ def self_test():
     ts = [threading.Thread(target=upload, args=(slow, csv, sent)) for _ in range(2)]
     [t.start() for t in ts]; [t.join() for t in ts]
     assert sum(len(p["rows"]) for p in got[-2:] if p["rows"][0][0].startswith("2026-11-18 10:01")) == 4, got[-2:]
+    trips, tsent = os.path.join(d, "trips.csv"), os.path.join(d, "trips.sent")    # header skipped, tab passed on
+    open(trips, "w").write("start,end,duration_min\n2026-11-18 10:06,2026-11-18 10:52,46.0\n")
+    r = upload_all(ok, [(csv, sent, SHEET), (trips, tsent, "Drives")])
+    assert r == {SHEET: 0, "Drives": 1} and got[-1] == {"sheet": "Drives", "rows": [["2026-11-18 10:06", "2026-11-18 10:52", "46.0"]]}, (r, got[-1])
+    assert upload_all(ok, [(trips, tsent, "Drives")]) == {"Drives": 0}
     row = sample()
     assert len(row) == 5 and len(row[0]) == 19
     print("telemetry: PASS")
