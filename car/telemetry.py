@@ -91,8 +91,9 @@ def upload(post, path=CSV, sent_path=SENT, sheet=SHEET):
         rows, sent = pending(path, sent_path)
         if not rows:
             return 0
-        if post({"sheet": sheet, "rows": rows}).strip() != "ok":
-            raise RuntimeError("the sheet did not answer ok")
+        answer = post({"sheet": sheet, "rows": rows}).strip()
+        if answer != "ok":
+            raise RuntimeError(f"{sheet}: the sheet answered {answer[:120]!r}")
         with open(sent_path + ".tmp", "w") as f:
             f.write(str(sent + len(rows)))
         os.replace(sent_path + ".tmp", sent_path)
