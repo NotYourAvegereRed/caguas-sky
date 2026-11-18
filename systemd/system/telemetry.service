@@ -1,0 +1,12 @@
+[Unit]
+Description=Pi temperature log (CSV on the SD card) -> Google Sheet "Pi Temps" when there is internet
+After=network.target
+
+[Service]
+User=zen
+ExecStart=/usr/bin/python3 /usr/local/bin/telemetry.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
