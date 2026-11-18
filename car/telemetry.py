@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""telemetry.py v1.0 (2026-11-18): Pi temperature log -> Google Sheet ("Pi Temps" tab of the Setup Log).
+"""telemetry.py v1.1 (2026-11-18): v1.1: one upload at a time (file lock): a manual "send" while the service
+uploads sent the same lines twice.
+v1.0 (2026-11-18): Pi temperature log -> Google Sheet ("Pi Temps" tab of the Setup Log).
 
 Every SAMPLE_S it appends one line to CSV (local, on the SD card, so nothing is lost without signal):
     time (Pi local clock), SoC temp C, 5 V rail V (PMIC EXT5V_V), vcgencmd get_throttled, RP2040 car state
@@ -14,7 +16,7 @@ Usage:
     telemetry.py send      upload what is pending now, once, and print the result
     telemetry.py --test    self-check
 """
-import json, os, subprocess, sys, time, urllib.request
+import fcntl, json, os, subprocess, sys, time, urllib.request
 
 SAMPLE_S = 30
 UPLOAD_S = 60
@@ -75,15 +77,18 @@ def pending(path=CSV, sent_path=SENT):
 
 def upload(post, path=CSV, sent_path=SENT):
     """post(payload) -> response text. Returns rows sent (0 = nothing pending), or raises on failure."""
-    rows, sent = pending(path, sent_path)
-    if not rows:
-        return 0
-    if post({"sheet": SHEET, "rows": rows}).strip() != "ok":
-        raise RuntimeError("the sheet did not answer ok")
-    with open(sent_path + ".tmp", "w") as f:
-        f.write(str(sent + len(rows)))
-    os.replace(sent_path + ".tmp", sent_path)
-    return len(rows)
+    os.makedirs(os.path.dirname(sent_path), exist_ok=True)
+    with open(sent_path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)               # the service and a manual 'send' never upload the same lines
+        rows, sent = pending(path, sent_path)
+        if not rows:
+            return 0
+        if post({"sheet": SHEET, "rows": rows}).strip() != "ok":
+            raise RuntimeError("the sheet did not answer ok")
+        with open(sent_path + ".tmp", "w") as f:
+            f.write(str(sent + len(rows)))
+        os.replace(sent_path + ".tmp", sent_path)
+        return len(rows)
 
 
 def http_post(cfg):
@@ -112,7 +117,7 @@ def main():
             sys.exit(f"no url / secret in {CFG}")
         print(f"sent {upload(http_post(cfg))} lines")
         return
-    print(f"telemetry v1.0: {CSV} every {SAMPLE_S} s, upload {'on' if cfg else f'off (no {CFG})'}", flush=True)
+    print(f"telemetry v1.1: {CSV} every {SAMPLE_S} s, upload {'on' if cfg else f'off (no {CFG})'}", flush=True)
     next_up, backoff, failing = 0.0, UPLOAD_S, False
     while True:
         append(sample())
@@ -150,6 +155,13 @@ def self_test():
         pass
     assert pending(csv, sent)[0] == [["2026-11-18 10:00:03", "53", "", "0x0", ""]]
     assert upload(ok, csv, sent) == 1 and pending(csv, sent)[0] == []
+    import threading                                                     # two uploads at once: each line goes once
+    for i in range(4):
+        append([f"2026-11-18 10:01:0{i}", 50, "", "0x0", ""], csv)
+    slow = lambda p: (time.sleep(0.3), got.append(p), "ok")[2]
+    ts = [threading.Thread(target=upload, args=(slow, csv, sent)) for _ in range(2)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert sum(len(p["rows"]) for p in got[-2:] if p["rows"][0][0].startswith("2026-11-18 10:01")) == 4, got[-2:]
     row = sample()
     assert len(row) == 5 and len(row[0]) == 19
     print("telemetry: PASS")
