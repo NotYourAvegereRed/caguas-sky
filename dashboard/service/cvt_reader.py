@@ -33,8 +33,7 @@ RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
 Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
-voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs); since 2026-11-19 also ABS, HVAC, IPDM, SRS and TPMS,
-each code tagged active (failing now / pending) or stored (history). 2026-11-17: also on demand, CHECK FOR CODES
+voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs). 2026-11-17: also on demand, CHECK FOR CODES
 on the CODES tab (request_scan, read-only, any gear; the result text goes out like the clear's: clear_msg). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
@@ -350,38 +349,23 @@ class Alerts:
         return [self.active[k] for k in order if k in self.active]
 
 
-# ---------------- trouble codes (8 modules), read once per engine start and on demand ----------------
+# ---------------- trouble codes (ECM / TCM / BCM), read once at startup ----------------
 # Checked on the Rogue with tools/dtc_probe.py, 2026-11-10 (MAF unplugged -> P0102): nobody answers KWP 18,
 # the ECM refuses 19 (7F 19 11) and only gives OBD2 mode 03 (stored) / 07 (pending); TCM and BCM answer 19 02.
 # Mask 0D = failed now, pending or confirmed: with FF the TCM lists all 62 codes it knows (status 40 = test not run).
 # (module, request header, reply id, requests: every one is asked, the codes are joined)
-# 2026-11-19, CVTz50 "Read DTC - All subsystems" Bluetooth snoop: ABS, HVAC and IPDM (the engine room power
-# distribution box) are read inside the Nissan session (10C0 ... 1081); SRS (airbag) and TPMS refuse 10C0
-# (7F 10 12) and answer 19 02 in the default session. Reply ids from the app's own ATCRA (request + 0x20).
 DTC_MODULES = [("ECM", "7DF", "7E8", ["03", "07"]),
                ("TCM", "7E1", "7E9", ["19020D"]),
-               ("BCM", "745", "765", ["19020D"]),
-               ("ABS", "740", "760", ["10C0", "19020D", "1081"]),
-               ("HVAC", "744", "764", ["10C0", "19020D", "1081"]),
-               ("IPDM", "74D", "76D", ["10C0", "19020D", "1081"]),
-               ("SRS", "752", "772", ["19020D"]),
-               ("TPMS", "758", "778", ["19020D"])]
+               ("BCM", "745", "765", ["19020D"])]
 # Pi test 2026-11-10: inside the 10C0 session the ECM does not answer mode 03 / 07 (same as the old 010C), so the
 # scan first sends 10 81 (back to the default session), like the phone app does (Bluetooth snoop 2026-11-10:
 # 1081 -> 50 81, then 03 / 07 answer at once).
 # Clearing, from the same snoop, ECM: 10C0 -> 14FF00 (answers 54 FF 00) -> 1081.
-# 2026-11-19 clear snoop (CVTz50, all answered 54): ABS / HVAC / IPDM 10C0 -> 14FFFFFF -> 1081; SRS / TPMS
-# (10C0 refused) 1003 -> 14FFFFFF -> 1001.
-# shortcut: TCM / BCM use the recipe of the module they behave like (TCM accepts 10C0 like ABS, BCM refuses it like
-# SRS), not seen on the car yet; check the "DTC clear" log lines the first time one of them has a code.
+# shortcut: TCM / BCM clear is the standard UDS 14 FF FF FF, not seen on the car yet (they had no codes to clear);
+# check the "DTC clear" log lines the first time one of them has a code.
 DTC_CLEAR = {"ECM": ("7E0", "7E8", ["10C0", "14FF00", "1081"]),
-             "TCM": ("7E1", "7E9", ["10C0", "14FFFFFF", "1081"]),
-             "BCM": ("745", "765", ["1003", "14FFFFFF", "1001"]),
-             "ABS": ("740", "760", ["10C0", "14FFFFFF", "1081"]),
-             "HVAC": ("744", "764", ["10C0", "14FFFFFF", "1081"]),
-             "IPDM": ("74D", "76D", ["10C0", "14FFFFFF", "1081"]),
-             "SRS": ("752", "772", ["1003", "14FFFFFF", "1001"]),
-             "TPMS": ("758", "778", ["1003", "14FFFFFF", "1001"])}
+             "TCM": ("7E1", "7E9", ["14FFFFFF"]),
+             "BCM": ("745", "765", ["14FFFFFF"])}
 DTC_TRIES = 3                                  # scans with a module not answering before giving up (per engine start)
 DTC_SETTLE_S = 10.0                            # engine running this long before the scan
 
@@ -390,27 +374,16 @@ def dtc_code(hi, lo):
     return f"{'PCBU'[hi >> 6]}{(hi >> 4) & 3}{hi & 0xF:X}{lo:02X}"
 
 
-def dtc_records(pl):
-    """positive DTC reply -> {'P0420': active, ...} (may be empty); None if it is not one (no answer, 7F refusal).
-    UDS 59: active = status bit 0 (failing now) or bit 2 (pending); status 08 alone (confirmed, not failing now) is
-    history, e.g. the CAN / voltage codes the radio install left (2026-11-19). Mode 03 / 07 / KWP 58: always active."""
+def dtc_decode(pl):
+    """positive DTC reply -> ['P0420', ...] (may be empty); None if it is not one (no answer, 7F refusal)."""
     size = {0x59: (3, 4),      # 59 02 mask [hi lo failure-type status]...
             0x58: (2, 3),      # 58 count [hi lo status]...
             0x43: (2, 2), 0x47: (2, 2)}.get(pl[0] if pl else None)      # 43 / 47 count [hi lo]... (stored / pending)
     if not size:
         return None
-    recs, n, out = pl[size[0]:], size[1], {}
-    for i in range(0, len(recs) - n + 1, n):
-        if recs[i] or recs[i + 1]:
-            code = dtc_code(recs[i], recs[i + 1])
-            out[code] = out.get(code, False) or pl[0] != 0x59 or bool(recs[i + 3] & 0x05)
-    return out
-
-
-def dtc_decode(pl):
-    """positive DTC reply -> ['P0420', ...] (may be empty); None if it is not one (no answer, 7F refusal)."""
-    r = dtc_records(pl)
-    return None if r is None else list(r)
+    recs, n = pl[size[0]:], size[1]
+    codes = [dtc_code(recs[i], recs[i + 1]) for i in range(0, len(recs) - n + 1, n) if recs[i] or recs[i + 1]]
+    return list(dict.fromkeys(codes))
 
 
 def chunks(seq, n):
@@ -680,11 +653,8 @@ class CvtReader:
         """Ask each module for its stored codes (read-only). True when every module answered."""
         found, answered = [], set()
         self._send(ser, "ATAT0")                       # fixed reply timeout: the adaptive one is tuned to the fast TCM
-        self._send(ser, "ATFCSD300000")                # ISO-TP flow control set by hand, like the CVTz50: the automatic
-        self._send(ser, "ATFCSM1")                     # one only knows 7E8-7EF; ABS / HVAC / IPDM answer in several frames
         for name, tx, rx, reqs in DTC_MODULES:
             self._send(ser, "ATCRA" + rx)              # only this module's replies (the BCM is outside 7E8-7EF)
-            self._send(ser, "ATFCSH" + (ECM_HEADER if name == "ECM" else tx))   # flow control to this module
             if name == "ECM":                          # out of the 10C0 session, or it ignores mode 03 / 07
                 self._header(ser, ECM_HEADER)
                 self._send(ser, "1081", 0.5)
@@ -692,20 +662,14 @@ class CvtReader:
             self._header(ser, tx)
             for req in reqs:
                 pl = isotp_payload(self._send(ser, req, 2.0), rx)
-                codes = dtc_records(pl)
+                codes = dtc_decode(pl)
                 print(f"DTC {name} {req}: " + ("no answer" if not pl else
                       " ".join(f"{b:02X}" for b in pl[:12]) if codes is None else
-                      ", ".join(c + ("" if a else " (stored)") for c, a in codes.items()) or "no codes"), flush=True)
+                      ", ".join(codes) or "no codes"), flush=True)
                 if codes is not None:
-                    for c, a in codes.items():
-                        e = next((d for d in found if (d["mod"], d["code"]) == (name, c)), None)
-                        if e is None:
-                            found.append({"mod": name, "code": c, "active": a})
-                        else:
-                            e["active"] = e["active"] or a
+                    found += [{"mod": name, "code": c} for c in codes if {"mod": name, "code": c} not in found]
                     answered.add(name)
         self._send(ser, "ATAR")                        # back to automatic receive
-        self._send(ser, "ATFCSM0")                     # and automatic flow control (the CVT polling relies on it)
         self._send(ser, "ATAT2")
         if answered:
             with self._lock:
@@ -719,10 +683,8 @@ class CvtReader:
         every = self._read_dtcs(ser)
         if self.dtc_version == v:
             return "NO ANSWER · ENGINE OFF?"
-        codes = self.dtcs()
-        n, act = len(codes), sum(1 for d in codes if d.get("active", True))
-        return ("SCANNED · " + ("NO CODES" if not n else f"{n} CODE{'S' * (n > 1)} · {act} ACTIVE")
-                + ("" if every else " · A MODULE DID NOT ANSWER"))
+        n = len(self.dtcs())
+        return "SCANNED · " + ("NO CODES" if not n else f"{n} CODE{'S' * (n > 1)}") + ("" if every else " · A MODULE DID NOT ANSWER")
 
     def _clear_dtcs(self, ser):
         """Clear the stored codes of every module that has one. Returns the text for the page."""

@@ -127,11 +127,11 @@ VIEWS.codes = () => {
   const key = (d) => `${d.mod} ${d.code}`, now = new Set(DTCS.map(key));
   const cur = !SCANS ? `<div class="t-mini">NOT SCANNED YET<br>10 s after the engine starts</div>`
     : !DTCS.length ? `<div class="t-val" style="color:var(--ok)"><b>NO CODES</b></div>`
-    : DTCS.map((d) => `<div class="t-row${d.quiet ? " t-quiet" : ""}"><span class="t-lbl">${d.mod}${d.active === false ? " · stored" : d.quiet ? " · common" : ""}</span><span class="t-val"><b>${d.code}</b></span></div>`).join("");
+    : DTCS.map((d) => `<div class="t-row${d.quiet ? " t-quiet" : ""}"><span class="t-lbl">${d.mod}${d.quiet ? " · common" : ""}</span><span class="t-val"><b>${d.code}</b></span></div>`).join("");
   const rows = [...HIST].sort((a, b) => String(b.last).localeCompare(String(a.last)));
   const tr = (d) => `<tr class="${now.has(key(d)) ? "now" : ""}${d.quiet ? " t-quiet" : ""}"><td class="n">${d.code}</td><td>${d.mod}${d.quiet ? " · common" : ""}</td><td>${d.first ?? "--"}</td><td>${d.last ?? "--"}</td><td class="n">${d.n ?? "--"}</td></tr>`;
   return `<div class="t-grid" style="grid-template-columns:1fr 2.2fr;height:450px">
-    <div class="t-col" style="--i:0"><h3>NOW · ALL MODULES</h3>${cur}
+    <div class="t-col" style="--i:0"><h3>NOW · ECM TCM BCM</h3>${cur}
       <div class="t-clear t-scan" id="t-scan" role="button"><span>CHECK FOR CODES</span></div>
       <div class="t-clear"${DTCS.length ? "" : " hidden"} id="t-clear" role="button"><i></i><span>HOLD 2 S TO CLEAR</span></div>
       <div class="t-mini" id="t-clearmsg">${CLEAR_MSG || (DTCS.length ? "in P · car stopped" : "")}</div></div>
