@@ -38,11 +38,25 @@ class FakeElm:
 # like the Rogue with the MAF unplugged: ECM P0102 stored + P0102 / P0113 pending, TCM and BCM no codes
 ROGUE = {("7DF", "03"): "7E8 04 43 01 01 02", ("7DF", "07"): "7E8 06 47 02 01 02 01 13",
          ("7E1", "19020D"): "7E9 03 59 02 0D", ("745", "19020D"): "765 03 59 02 0D"}
+for tx in ("740", "744", "74D"):                       # 2026-11-19 modules, no codes: Nissan session around 19 02
+    rx = f"{int(tx, 16) + 0x20:03X}"
+    ROGUE.update({(tx, "10C0"): f"{rx} 02 50 C0", (tx, "19020D"): f"{rx} 03 59 02 09", (tx, "1081"): f"{rx} 02 50 81"})
+ROGUE.update({("752", "19020D"): "772 03 59 02 09", ("758", "19020D"): "778 03 59 02 09"})
+
+
+def isotp(rx, payload):
+    """payload bytes -> the ELM text of its ISO-TP frames (first frame + consecutive frames)"""
+    if len(payload) <= 7:
+        return f"{rx} {len(payload):02X} " + " ".join(f"{b:02X}" for b in payload)
+    frames, rest, n = [f"{rx} 10 {len(payload):02X} " + " ".join(f"{b:02X}" for b in payload[:6])], payload[6:], 1
+    while rest:
+        frames.append(f"{rx} 2{n % 16:X} " + " ".join(f"{b:02X}" for b in rest[:7])); rest, n = rest[7:], n + 1
+    return "\r".join(frames)
 elm = FakeElm(ROGUE)
 r = c.CvtReader()
 assert r.dtcs() == [] and r._read_dtcs(elm) is True
-assert r.dtcs() == [{"mod": "ECM", "code": "P0102"}, {"mod": "ECM", "code": "P0113"}] and r.dtc_version == 1
-assert elm.sent[-2:] == ["ATAR", "ATAT2"] and not any(s.startswith(("14", "04")) for s in elm.sent)     # a scan never clears
+assert r.dtcs() == [{"mod": "ECM", "code": "P0102", "active": True}, {"mod": "ECM", "code": "P0113", "active": True}] and r.dtc_version == 1
+assert elm.sent[-3:] == ["ATAR", "ATFCSM0", "ATAT2"] and not any(s.startswith(("14", "04")) for s in elm.sent)     # a scan never clears
 assert elm.sent.index("1081") < elm.sent.index("03") and r.pop_scans() == [r.dtcs()] and r.pop_scans() == []
 
 # ---- CLEAR button: refused unless in P + stopped; ECM sequence from the snoop; only modules with a code ----
@@ -76,9 +90,41 @@ assert r._read_dtcs(FakeElm({})) is False and r.dtc_version == 0
 # CHECK FOR CODES: read-only, any gear, text for the page
 r = c.CvtReader()
 elm = FakeElm(ROGUE)
-assert r._scan_dtcs(elm) == "SCANNED · 2 CODES" and not any(s.startswith(("14", "04")) for s in elm.sent)
+assert r._scan_dtcs(elm) == "SCANNED · 2 CODES · 2 ACTIVE" and not any(s.startswith(("14", "04")) for s in elm.sent)
 assert r._scan_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "7DF"})) == "SCANNED · NO CODES · A MODULE DID NOT ANSWER"
 assert r._scan_dtcs(FakeElm({})) == "NO ANSWER · ENGINE OFF?"
+# 2026-11-19 snoop: ABS history codes (status 08) are stored, not active; status 09 = failing now
+abs_reply = isotp("760", [0x59, 0x02, 0x09, 0x51, 0x30, 0x00, 0x08, 0xD0, 0x02, 0x01, 0x08, 0x51, 0x99, 0x00, 0x09])
+assert c.dtc_records(c.isotp_payload(abs_reply, "760")) == {"C1130": False, "U1002": False, "C1199": True}
+assert c.dtc_records([0x59, 0x02, 0xB9, 0xA0, 0xBD, 0x96, 0x28, 0xA0, 0xBD, 0x14, 0x2C]) == {"B20BD": True}   # same code twice: active if any
+r = c.CvtReader()
+elm = FakeElm({**ROGUE, ("740", "19020D"): abs_reply, ("752", "19020D"): "772 07 59 02 09 80 A0 8F 08"})
+assert r._read_dtcs(elm) is True
+assert [(d["mod"], d["code"], d["active"]) for d in r.dtcs() if d["mod"] in ("ABS", "SRS")] == \
+       [("ABS", "C1130", False), ("ABS", "U1002", False), ("ABS", "C1199", True), ("SRS", "B00A0", False)]
+k = elm.sent.index("ATSH740")
+assert elm.sent[k + 1:k + 4] == ["10C0", "19020D", "1081"], elm.sent[k:k + 5]          # ABS read inside 10C0 ... 1081
+assert elm.sent[k - 1] == "ATFCSH740" and "ATFCSM1" in elm.sent and elm.sent.index("ATFCSM0") > k          # flow control to the ABS, auto again after
+# clear: ABS 10C0 -> 14FFFFFF -> 1081, SRS 1003 -> 14FFFFFF -> 1001 (the app's recipes); the ECM is not touched
+class AllClear(FakeElm):
+    def write(self, data):
+        if data.decode().strip() == "14FFFFFF":
+            self.replies = {k: v for k, v in self.replies.items() if k not in (("740", "19020D"), ("752", "19020D"))}
+            self.replies.update({("740", "19020D"): "760 03 59 02 09", ("752", "19020D"): "772 03 59 02 09"})
+        super().write(data)
+noecm = {k: v for k, v in ROGUE.items() if k[0] != "7DF"}
+noecm.update({("7DF", "03"): "7E8 02 43 00", ("7DF", "07"): "7E8 02 47 00"})
+elm = AllClear({**noecm, ("740", "19020D"): abs_reply, ("752", "19020D"): "772 07 59 02 09 80 A0 8F 08",
+                **{(tx, "14FFFFFF"): f"{rx} 01 54" for tx, rx in (("740", "760"), ("752", "772"))},
+                ("752", "1003"): "772 06 50 03 00 32 01 F4", ("752", "1001"): "772 06 50 01 00 32 01 F4"})
+r = reader("P", 0)
+assert r._clear_dtcs(elm) == "CODES CLEARED", r.dtcs()
+hdr_cmds = [s for s in elm.sent if s.startswith("ATSH") or s in ("10C0", "1003", "14FFFFFF", "1081", "1001")]
+i = hdr_cmds.index("14FFFFFF")
+assert hdr_cmds[i - 2:i + 2] == ["ATSH740", "10C0", "14FFFFFF", "1081"], hdr_cmds
+j = hdr_cmds.index("14FFFFFF", i + 1)
+assert hdr_cmds[j - 2:j + 2] == ["ATSH752", "1003", "14FFFFFF", "1001"], hdr_cmds
+assert "14FF00" not in elm.sent
 print("dtc ok")
 
 # ---- alerts: CVT fluid 100 C, voltage 11.7 / 11.8 V ----

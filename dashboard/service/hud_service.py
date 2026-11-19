@@ -896,7 +896,8 @@ class Hud:
         return e
 
     def dtc_state(self):
-        q = lambda codes: [dict(d, quiet=d["code"] in DTC_QUIET) for d in codes]
+        # quiet = no badge / banner: the common CAN codes, and codes that are only stored (not failing now)
+        q = lambda codes: [dict(d, quiet=d["code"] in DTC_QUIET or not d.get("active", True)) for d in codes]
         return {"dtcs": q(self.cvt.dtcs()), "dtc_hist": q(self.dtc_hist), "dtc_scans": self.cvt.dtc_version}
 
     def snapshot(self, art=True):
