@@ -33,7 +33,7 @@ RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
 Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
-voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs); since 2026-11-19 also ABS, HVAC, IPDM, SRS and TPMS,
+voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs); since 2026-11-19 also ABS, HVAC, SRS and TPMS,
 each code tagged active (failing now / pending) or stored (history). 2026-11-17: also on demand, CHECK FOR CODES
 on the CODES tab (request_scan, read-only, any gear; the result text goes out like the clear's: clear_msg). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
@@ -350,7 +350,7 @@ class Alerts:
         return [self.active[k] for k in order if k in self.active]
 
 
-# ---------------- trouble codes (8 modules), read once per engine start and on demand ----------------
+# ---------------- trouble codes (7 modules), read once per engine start and on demand ----------------
 # Checked on the Rogue with tools/dtc_probe.py, 2026-11-10 (MAF unplugged -> P0102): nobody answers KWP 18,
 # the ECM refuses 19 (7F 19 11) and only gives OBD2 mode 03 (stored) / 07 (pending); TCM and BCM answer 19 02.
 # Mask 0D = failed now, pending or confirmed: with FF the TCM lists all 62 codes it knows (status 40 = test not run).
@@ -363,9 +363,11 @@ DTC_MODULES = [("ECM", "7DF", "7E8", ["03", "07"]),
                ("BCM", "745", "765", ["19020D"]),
                ("ABS", "740", "760", ["10C0", "19020D", "1081"]),
                ("HVAC", "744", "764", ["10C0", "19020D", "1081"]),
-               ("IPDM", "74D", "76D", ["10C0", "19020D", "1081"]),
                ("SRS", "752", "772", ["19020D"]),
                ("TPMS", "758", "778", ["19020D"])]
+# shortcut: the IPDM (74D / 76D, engine room power box) is left out: it answered at 16:20 / 16:59 on 2026-11-19 (key ON,
+# engine off) and nothing after, to the vLinker or the CVTz50. Maybe it does not answer with the engine running (the scan
+# runs 10 s after start); add it back once that is known. It only had install history codes.
 # Pi test 2026-11-10: inside the 10C0 session the ECM does not answer mode 03 / 07 (same as the old 010C), so the
 # scan first sends 10 81 (back to the default session), like the phone app does (Bluetooth snoop 2026-11-10:
 # 1081 -> 50 81, then 03 / 07 answer at once).
@@ -379,7 +381,6 @@ DTC_CLEAR = {"ECM": ("7E0", "7E8", ["10C0", "14FF00", "1081"]),
              "BCM": ("745", "765", ["1003", "14FFFFFF", "1001"]),
              "ABS": ("740", "760", ["10C0", "14FFFFFF", "1081"]),
              "HVAC": ("744", "764", ["10C0", "14FFFFFF", "1081"]),
-             "IPDM": ("74D", "76D", ["10C0", "14FFFFFF", "1081"]),
              "SRS": ("752", "772", ["1003", "14FFFFFF", "1001"]),
              "TPMS": ("758", "778", ["1003", "14FFFFFF", "1001"])}
 DTC_TRIES = 3                                  # scans with a module not answering before giving up (per engine start)
