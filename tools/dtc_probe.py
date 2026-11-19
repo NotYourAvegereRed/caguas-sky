@@ -19,7 +19,8 @@ Uso (Windows, laptop):
 Llave en ON (motor apagado esta bien). Guarda todo el trafico en dtc_probe_<fecha>.txt.
 2026-11-19: flow control ISO-TP a mano (ATFCSH <modulo>, ATFCSD 30 00 00, ATFCSM 1), como el CVTz50: sin eso el
 vLinker no lo manda a los IDs fuera de 7E0-7E7 y las respuestas largas (IPDM 74D: 407 bytes) llegaban cortadas.
-Una respuesta cortada ahora sale como "sin respuesta valida", no como "OK, 0 codes".
+Una respuesta cortada ahora sale como "sin respuesta valida", no como "OK, 0 codes". Orden: ATFCSH antes de ATFCSM 1
+(con FCSM 1 primero el vLinker contesta "?" y se queda en automatico, Pi 2026-11-19).
 """
 import argparse
 import datetime
@@ -166,7 +167,7 @@ def main():
     with open(logname, "w") as log:
         elm = Elm(a.port, a.baud, log)
         try:
-            for c in ["ATZ", "ATE0", "ATL0", "ATS1", "ATH1", "ATSP6", "ATCAF1", "ATST96", "ATFCSD 30 00 00", "ATFCSM 1"]:
+            for c in ["ATZ", "ATE0", "ATL0", "ATS1", "ATH1", "ATSP6", "ATCAF1", "ATST96"]:
                 r = elm.cmd(c, timeout=3.0 if c != "ATZ" else 5.0)
                 if c == "ATZ":
                     print("Adaptador:", " ".join(r) or "(no contesto - revisa puerto/baud)")
@@ -176,7 +177,8 @@ def main():
             for name, tx, rx in mods:
                 print(f"\n=== {name}  ({tx} -> {rx}) ===")
                 elm.cmd(f"ATSH {tx}")
-                elm.cmd(f"ATFCSH {tx}")       # flow control a este modulo
+                for c in (f"ATFCSH {tx}", "ATFCSD 30 00 00", "ATFCSM 1"):   # flow control a este modulo, en el orden
+                    elm.cmd(c)                                              # del CVTz50: FCSM 1 sin FCSH antes = "?"
                 elm.cmd(f"ATCRA {rx}")
                 worked = None
                 for label, req, pos in REQUESTS:
@@ -196,7 +198,7 @@ def main():
                         print(f"  {label}: {status}")
                 if name == "ECM":
                     elm.cmd("ATSH 7DF")
-                    elm.cmd("ATFCSH 7E0")     # la respuesta viene de 7E8: flow control a 7E0
+                    elm.cmd("ATFCSH 7E0")     # la respuesta viene de 7E8: flow control a 7E0 (FCSD / FCSM 1 ya puestos)
                     status, res = ask(elm, "7E8", "03", 0x43)
                     print(f"  OBD2 Mode 03: {status}" + (f", {len(res)} code(s)" if status == "OK" else ""))
                     for code, _ in (res or []) if status == "OK" else []:

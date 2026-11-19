@@ -680,11 +680,12 @@ class CvtReader:
         """Ask each module for its stored codes (read-only). True when every module answered."""
         found, answered = [], set()
         self._send(ser, "ATAT0")                       # fixed reply timeout: the adaptive one is tuned to the fast TCM
-        self._send(ser, "ATFCSD300000")                # ISO-TP flow control set by hand, like the CVTz50: the automatic
-        self._send(ser, "ATFCSM1")                     # one only knows 7E8-7EF; ABS / HVAC / IPDM answer in several frames
         for name, tx, rx, reqs in DTC_MODULES:
             self._send(ser, "ATCRA" + rx)              # only this module's replies (the BCM is outside 7E8-7EF)
-            self._send(ser, "ATFCSH" + (ECM_HEADER if name == "ECM" else tx))   # flow control to this module
+            # ISO-TP flow control set by hand, like the CVTz50 (the automatic one does not reach 74D: IPDM answers cut,
+            # probe 2026-11-19). Order matters: ATFCSM1 before an ATFCSH is refused ("?") and stays automatic.
+            for c in ("ATFCSH" + (ECM_HEADER if name == "ECM" else tx), "ATFCSD300000", "ATFCSM1"):
+                self._send(ser, c)
             if name == "ECM":                          # out of the 10C0 session, or it ignores mode 03 / 07
                 self._header(ser, ECM_HEADER)
                 self._send(ser, "1081", 0.5)

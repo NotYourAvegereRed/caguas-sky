@@ -104,7 +104,7 @@ assert [(d["mod"], d["code"], d["active"]) for d in r.dtcs() if d["mod"] in ("AB
        [("ABS", "C1130", False), ("ABS", "U1002", False), ("ABS", "C1199", True), ("SRS", "B00A0", False)]
 k = elm.sent.index("ATSH740")
 assert elm.sent[k + 1:k + 4] == ["10C0", "19020D", "1081"], elm.sent[k:k + 5]          # ABS read inside 10C0 ... 1081
-assert elm.sent[k - 1] == "ATFCSH740" and "ATFCSM1" in elm.sent and elm.sent.index("ATFCSM0") > k          # flow control to the ABS, auto again after
+assert elm.sent[k - 3:k] == ["ATFCSH740", "ATFCSD300000", "ATFCSM1"] and elm.sent.index("ATFCSM0") > k   # FCSH before FCSM1
 # clear: ABS 10C0 -> 14FFFFFF -> 1081, SRS 1003 -> 14FFFFFF -> 1001 (the app's recipes); the ECM is not touched
 class AllClear(FakeElm):
     def write(self, data):
