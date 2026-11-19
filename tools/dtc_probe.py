@@ -175,6 +175,7 @@ def main():
 
             summary = []
             for name, tx, rx in mods:
+                tried_c0 = False
                 print(f"\n=== {name}  ({tx} -> {rx}) ===")
                 elm.cmd(f"ATSH {tx}")
                 for c in (f"ATFCSH {tx}", "ATFCSD 30 00 00", "ATFCSM 1"):   # flow control a este modulo, en el orden
@@ -183,9 +184,11 @@ def main():
                 worked = None
                 for label, req, pos in REQUESTS:
                     status, res = ask(elm, rx, req, pos)
-                    if res and res[0] == "nrc" and res[1] in (0x7F, 0x22, 0x7E):
+                    silent = status == "sin respuesta" and not tried_c0   # el IPDM dejo de contestar sin sesion (2026-11-19)
+                    if (res and res[0] == "nrc" and res[1] in (0x7F, 0x22, 0x7E)) or silent:
                         print(f"  {label}: {status} -> abriendo sesion 10 C0 y repitiendo")
-                        elm.cmd("10 C0")
+                        print(f"     10 C0 -> {' | '.join(elm.cmd('10 C0')) or 'nada'}")
+                        tried_c0 = True
                         status, res = ask(elm, rx, req, pos)
                         label += " (sesion C0)"
                     if status == "OK":
@@ -204,6 +207,8 @@ def main():
                     for code, _ in (res or []) if status == "OK" else []:
                         print(f"     {code}")
                 summary.append((name, worked))
+                if tried_c0:
+                    elm.cmd("10 81")  # devolver el modulo a la sesion normal
                 elm.cmd("ATAR")   # quitar filtro
 
             print("\n--- Resumen ---")
