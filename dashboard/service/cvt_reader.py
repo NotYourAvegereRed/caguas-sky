@@ -681,34 +681,38 @@ class CvtReader:
         """Ask each module for its stored codes (read-only). True when every module answered."""
         found, answered = [], set()
         self._send(ser, "ATAT0")                       # fixed reply timeout: the adaptive one is tuned to the fast TCM
-        for name, tx, rx, reqs in DTC_MODULES:
-            self._send(ser, "ATCRA" + rx)              # only this module's replies (the BCM is outside 7E8-7EF)
-            # ISO-TP flow control set by hand, like the CVTz50 (the automatic one does not reach 74D: IPDM answers cut,
-            # probe 2026-11-19). Order matters: ATFCSM1 before an ATFCSH is refused ("?") and stays automatic.
-            for c in ("ATFCSH" + (ECM_HEADER if name == "ECM" else tx), "ATFCSD300000", "ATFCSM1"):
-                self._send(ser, c)
-            if name == "ECM":                          # out of the 10C0 session, or it ignores mode 03 / 07
-                self._header(ser, ECM_HEADER)
-                self._send(ser, "1081", 0.5)
-                self._sess_t = -1e9                    # the next ECM read opens 10C0 again
-            self._header(ser, tx)
-            for req in reqs:
-                pl = isotp_payload(self._send(ser, req, 2.0), rx)
-                codes = dtc_records(pl)
-                print(f"DTC {name} {req}: " + ("no answer" if not pl else
-                      " ".join(f"{b:02X}" for b in pl[:12]) if codes is None else
-                      ", ".join(c + ("" if a else " (stored)") for c, a in codes.items()) or "no codes"), flush=True)
-                if codes is not None:
-                    for c, a in codes.items():
-                        e = next((d for d in found if (d["mod"], d["code"]) == (name, c)), None)
-                        if e is None:
-                            found.append({"mod": name, "code": c, "active": a})
-                        else:
-                            e["active"] = e["active"] or a
-                    answered.add(name)
-        self._send(ser, "ATAR")                        # back to automatic receive
-        self._send(ser, "ATFCSM0")                     # and automatic flow control (the CVT polling relies on it)
-        self._send(ser, "ATAT2")
+        try:
+            for name, tx, rx, reqs in DTC_MODULES:
+                self._send(ser, "ATCRA" + rx)          # only this module's replies (the BCM is outside 7E8-7EF)
+                # ISO-TP flow control set by hand, like the CVTz50 (the automatic one does not reach 74D: IPDM answers
+                # cut, probe 2026-11-19). Order matters: ATFCSM1 before an ATFCSH is refused ("?") and stays automatic.
+                for c in ("ATFCSH" + (ECM_HEADER if name == "ECM" else tx), "ATFCSD300000", "ATFCSM1"):
+                    self._send(ser, c)
+                if name == "ECM":                      # out of the 10C0 session, or it ignores mode 03 / 07
+                    self._header(ser, ECM_HEADER)
+                    self._send(ser, "1081", 0.5)
+                    self._sess_t = -1e9                # the next ECM read opens 10C0 again
+                self._header(ser, tx)
+                for req in reqs:
+                    pl = isotp_payload(self._send(ser, req, 2.0), rx)
+                    codes = dtc_records(pl)
+                    print(f"DTC {name} {req}: " + ("no answer" if not pl else
+                          " ".join(f"{b:02X}" for b in pl[:12]) if codes is None else
+                          ", ".join(c + ("" if a else " (stored)") for c, a in codes.items()) or "no codes"), flush=True)
+                    if codes is not None:
+                        for c, a in codes.items():
+                            e = next((d for d in found if (d["mod"], d["code"]) == (name, c)), None)
+                            if e is None:
+                                found.append({"mod": name, "code": c, "active": a})
+                            else:
+                                e["active"] = e["active"] or a
+                        answered.add(name)
+        finally:
+            # Always hand the adapter back the way the live CVT/ECM polling needs it, even if a _send raised
+            # mid-scan: automatic receive + automatic flow control, else the reader goes mute until restart.
+            self._send(ser, "ATAR")                    # back to automatic receive
+            self._send(ser, "ATFCSM0")                 # and automatic flow control (the CVT polling relies on it)
+            self._send(ser, "ATAT2")
         if answered:
             with self._lock:
                 self._dtcs, self.dtc_version = found, self.dtc_version + 1
