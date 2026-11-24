@@ -140,6 +140,21 @@ blk = [0x61, 0x10, 0, 0, 0, 2, 0x73, 0x86, 0, 0, 0, 0, 0x1A, 0x73, 0, 0, 0, 0, 0
 assert c.run_hours(blk) == (4929.0, 3114.8)
 assert c.run_hours(blk[:20]) is None and c.run_hours([0x7F, 0x21, 0x12]) is None and c.run_hours(None) is None
 assert c.run_hours(c.isotp_payload(isotp("7E9", blk), "7E9")) == (4929.0, 3114.8)
+frames = isotp("7E9", blk).split("\r")                      # 10 frames: sequence 1..9 wraps past F on long replies
+assert c.isotp_payload("\r".join(frames[:3] + frames[4:]), "7E9") is None          # a lost frame is not read shifted
+long = list(range(256)) * 2
+assert c.isotp_payload(isotp("7E9", long), "7E9") == long                         # 74 frames: sequence F -> 0 is fine
+# 2110 refused (7F): the Nissan session is opened, then asked again
+class SessionElm(FakeElm):
+    def write(self, data):
+        if data.decode().strip() == "10C0":
+            self.replies = {**self.replies, ("7E1", "2110"): isotp("7E9", blk)}
+        super().write(data)
+r = c.CvtReader()
+elm = SessionElm({("7E1", "21031"): "7E9 06 61 03 00 00 00 6D", ("7E1", "2110"): "7E9 03 7F 21 12"})
+r._fluid_wear(elm)
+assert r._eng["fluid_wear"] == 109 and (r._eng["run_h"], r._eng["run_warm_h"]) == (4929.0, 3114.8)
+assert elm.sent[-3:] == ["2110", "10C0", "2110"], elm.sent
 print("dtc ok")
 
 # ---- alerts: CVT fluid 100 C, voltage 11.7 / 11.8 V ----

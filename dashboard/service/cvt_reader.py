@@ -461,10 +461,12 @@ def isotp_payload(text, rx=TCM_REPLY):
                 continue                   # "response pending": the real answer follows
             return frame
         if kind == 1:
-            length = ((b[0] & 0x0F) << 8) | b[1]
+            length, seq = ((b[0] & 0x0F) << 8) | b[1], 1
             payload = b[2:]
         elif kind == 2 and length is not None:
-            payload += b[1:]
+            if b[0] & 0x0F != seq:
+                return None                    # a frame went missing: the rest would be read shifted
+            payload, seq = payload + b[1:], (seq + 1) & 0x0F
     return payload[:length] if length else None
 
 

@@ -59,7 +59,7 @@ body.pg-drag .pg { transition: none; }
 .t-tabs { position: relative; display: flex; gap: 6px; margin-left: 22px; height: 32px; }
 .t-tabbg, .t-hl { position: absolute; top: 0; width: 116px; height: 32px; transform: skewX(-14deg); }
 .t-tabbg { background: var(--panel); border: 1px solid var(--line2); }
-.t-hl { left: 0; background: var(--ink); transition: left .3s var(--ease); }
+.t-hl { left: 0; background: var(--ink); }
 .t-tab { position: relative; width: 116px; height: 32px; display: flex; align-items: center; justify-content: center;
   font: 700 italic 18px/1 TBarlow; letter-spacing: 1.5px; color: var(--dim); transition: color .25s; cursor: pointer; }
 .t-tab.on { color: #0b0c0e; }
