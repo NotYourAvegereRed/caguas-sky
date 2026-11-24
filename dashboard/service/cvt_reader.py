@@ -365,9 +365,10 @@ DTC_MODULES = [("ECM", "7DF", "7E8", ["03", "07"]),
                ("HVAC", "744", "764", ["10C0", "19020D", "1081"]),
                ("SRS", "752", "772", ["19020D"]),
                ("TPMS", "758", "778", ["19020D"])]
-# shortcut: the IPDM (74D / 76D, engine room power box) is left out: it answered at 16:20 / 16:59 on 2026-11-19 (key ON,
-# engine off) and nothing after, to the vLinker or the CVTz50. Maybe it does not answer with the engine running (the scan
-# runs 10 s after start); add it back once that is known. It only had install history codes.
+# shortcut: the IPDM (74D / 76D, engine room power box) is left out: on 2026-11-19 it answered at 16:17 (engine off) and
+# 16:59 (engine idling, Drive Samples 688 rpm), then nothing from 17:03 at the same idle, to the vLinker or the CVTz50
+# (every read-all 18:04-18:29). So the engine running is not the cause; add it back once it answers again. It only had
+# install history codes.
 # Pi test 2026-11-10: inside the 10C0 session the ECM does not answer mode 03 / 07 (same as the old 010C), so the
 # scan first sends 10 81 (back to the default session), like the phone app does (Bluetooth snoop 2026-11-10:
 # 1081 -> 50 81, then 03 / 07 answer at once).
