@@ -15,7 +15,8 @@ Telemetry window (2026-10-27): what is polled depends on the screen the page is 
 (set_view, sent by the page):
   main    CVT at full speed + in the background oil pressure (EOP) + RPM every 1 s and
           coolant + oil temp + control module voltage every 7 s, only for the alerts
-  dyno    same as main (rpm every 0.5 s) + torque / power every 2nd loop + CVT fluid wear (2103) once a minute
+  dyno    same as main (rpm every 0.5 s) + torque / power every 2nd loop + CVT fluid wear (2103) and run hours
+          (2110) once a minute
   all     engine DIDs in rounds (TIER_1 every round, TIER_4 / TIER_8 every 4th / 8th) + the CVT request
           every 2nd round + fluid wear
 (the ENGINE and CVT tabs are gone since 2026-11-10; the codes tab and the DSP page poll like main)
@@ -33,9 +34,10 @@ RP2040 falls back to the BLOWER signal alone.
 In P / N on the main and CVT screens: ECM rpm every loop and the TCM (CVT) request every PN_CVT_EVERY-th loop,
 so engine start / stop is seen fast. D / R (and an unknown gear) stay exactly as before.
 Trouble codes (2026-11-10): read once per engine start, DTC_SETTLE_S after the engine is running (steady
-voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs); since 2026-11-19 also ABS, HVAC, SRS and TPMS,
-each code tagged active (failing now / pending) or stored (history). 2026-11-17: also on demand, CHECK FOR CODES
-on the CODES tab (request_scan, read-only, any gear; the result text goes out like the clear's: clear_msg). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
+voltage, every module awake), from the ECM, TCM and BCM (_read_dtcs, DTC_STARTUP); ABS, HVAC, SRS and TPMS
+(since 2026-11-19) only on CHECK FOR CODES (2026-11-24), each code tagged active (failing now / pending) or stored
+(history). dtc_report() = time, scope and who answered. 2026-11-17: also on demand, CHECK FOR CODES
+on the MAINTENANCE tab (request_scan, read-only, any gear; the result text goes out like the clear's: clear_msg). .dtcs() -> [{"mod", "code"}] for the page (yellow badge).
 Env: HUD_OBD (1/0, default 1), HUD_OBD_PORT (default: auto, first /dev/serial/by-id
      entry that is not the RP2040).
 """
@@ -384,6 +386,7 @@ DTC_CLEAR = {"ECM": ("7E0", "7E8", ["10C0", "14FF00", "1081"]),
              "HVAC": ("744", "764", ["10C0", "14FFFFFF", "1081"]),
              "SRS": ("752", "772", ["1003", "14FFFFFF", "1001"]),
              "TPMS": ("758", "778", ["1003", "14FFFFFF", "1001"])}
+DTC_STARTUP = ("ECM", "TCM", "BCM")            # engine-start scan; ABS / HVAC / SRS / TPMS only on CHECK FOR CODES
 DTC_TRIES = 3                                  # scans with a module not answering before giving up (per engine start)
 DTC_SETTLE_S = 10.0                            # engine running this long before the scan
 
@@ -429,6 +432,15 @@ def find_port():
             continue                       # the RP2040 power controller
         return p
     return None
+
+
+def run_hours(pl):
+    """TCM 21 10 reply -> (run hours, run hours engine warm) or None. CVTz50 v1.63 tasks 1 / 2: data bytes 4-5 and
+    24-25, units of 10 min (its max 10922 h = 65535 / 6). The app showed 4929.0 / 3114.8 h on this car (2026-05-26)."""
+    if not pl or len(pl) < 28 or pl[0] != 0x61 or pl[1] != 0x10:
+        return None
+    d = pl[2:]
+    return round((d[4] << 8 | d[5]) / 6, 1), round((d[24] << 8 | d[25]) / 6, 1)
 
 
 def isotp_payload(text, rx=TCM_REPLY):
@@ -505,6 +517,7 @@ class CvtReader:
         self._power, self._power_ts, self._tcm_loops = {}, 0.0, 0
         self._ans_ts, self._rpm_ts, self._status_ts, self._pn_loop = -1e9, -1e9, -1e9, 0
         self._dtcs, self.dtc_version, self._dtc_left, self._dtc_run = [], 0, DTC_TRIES, None
+        self._dtc_report = None                        # last scan: time, scope (startup | all), who answered
         self._scans = collections.deque(maxlen=20)     # every scan result, for the code history (pop_scans)
         self._clear_req, self.clear_msg, self.clear_version = False, None, 0
         self._scan_req = False
@@ -544,6 +557,11 @@ class CvtReader:
         """[{"mod": "ECM", "code": "P0420"}, ...] from the last scan ([] = none, or not scanned yet: dtc_version 0)."""
         with self._lock:
             return list(self._dtcs)
+
+    def dtc_report(self):
+        """{"t": "18:42", "scope": "startup"|"all", "mods": [{"mod": "ECM", "ok": True}, ...]} of the last scan, or None."""
+        with self._lock:
+            return self._dtc_report
 
     def pop_scans(self):
         """results of the scans since the last call (the scan just before a clear included)"""
@@ -669,7 +687,8 @@ class CvtReader:
             self.eng_version += 1
 
     def _fluid_wear(self, ser):
-        """CVT fluid wear counter (TCM service 21, LID 03): 61 03 + 4 bytes. Same number as CVTz50."""
+        """CVT fluid wear counter (TCM service 21, LID 03): 61 03 + 4 bytes. Same number as CVTz50.
+        Then the run hours (21 10, run_hours)."""
         self._header(ser, TCM_HEADER)
         pl = isotp_payload(self._send(ser, "21031", 1.0))
         if pl and len(pl) >= 6 and pl[0] == 0x61 and pl[1] == 0x03:
@@ -677,13 +696,23 @@ class CvtReader:
             with self._lock:
                 self._eng["fluid_wear"] = v
                 self.eng_version += 1
+        pl = isotp_payload(self._send(ser, "2110", 1.0))           # multi-frame: no "1" reply count
+        if pl and pl[0] == 0x7F:                                   # CVTz50 opens the Nissan session first
+            self._send(ser, "10C0", 0.5)
+            pl = isotp_payload(self._send(ser, "2110", 1.0))
+        h = run_hours(pl)
+        if h:
+            with self._lock:
+                self._eng["run_h"], self._eng["run_warm_h"] = h
+                self.eng_version += 1
 
-    def _read_dtcs(self, ser):
-        """Ask each module for its stored codes (read-only). True when every module answered."""
+    def _read_dtcs(self, ser, only=None):
+        """Ask each module (or only those named) for its stored codes (read-only). True when every one answered."""
         found, answered = [], set()
+        mods = [m for m in DTC_MODULES if only is None or m[0] in only]
         self._send(ser, "ATAT0")                       # fixed reply timeout: the adaptive one is tuned to the fast TCM
         try:
-            for name, tx, rx, reqs in DTC_MODULES:
+            for name, tx, rx, reqs in mods:
                 self._send(ser, "ATCRA" + rx)          # only this module's replies (the BCM is outside 7E8-7EF)
                 # ISO-TP flow control set by hand, like the CVTz50 (the automatic one does not reach 74D: IPDM answers
                 # cut, probe 2026-11-19). Order matters: ATFCSM1 before an ATFCSH is refused ("?") and stays automatic.
@@ -715,10 +744,12 @@ class CvtReader:
             self._send(ser, "ATFCSM0")                 # and automatic flow control (the CVT polling relies on it)
             self._send(ser, "ATAT2")
         if answered:
+            report = {"t": time.strftime("%H:%M"), "scope": "startup" if only else "all",
+                      "mods": [{"mod": m[0], "ok": m[0] in answered} for m in mods]}
             with self._lock:
-                self._dtcs, self.dtc_version = found, self.dtc_version + 1
+                self._dtcs, self.dtc_version, self._dtc_report = found, self.dtc_version + 1, report
             self._scans.append(found)
-        return len(answered) == len(DTC_MODULES)
+        return len(answered) == len(mods)
 
     def _scan_dtcs(self, ser):
         """CHECK FOR CODES: one scan now. Returns the text for the page."""
@@ -784,7 +815,7 @@ class CvtReader:
             now = time.monotonic()
             run = self.alert._run_since            # trouble codes: once per engine start, after it settles
             if run is not None and run != self._dtc_run and now - run >= DTC_SETTLE_S and now >= dtc_next:
-                if self._read_dtcs(ser) or self._dtc_left <= 1:
+                if self._read_dtcs(ser, DTC_STARTUP) or self._dtc_left <= 1:
                     self._dtc_run, self._dtc_left = run, DTC_TRIES
                 else:
                     self._dtc_left -= 1

@@ -25,15 +25,18 @@ Telemetry window (swipe left on the main screen):
                     so cvt_reader only polls what is needed (main = CVT + background alert reads)
     server -> page: {"eng": {rpm, coolant_c, oil_c, iat_c, fuel_c, eop_mv, eop_psi, eop_warn_mv, eop_crit_mv,
                              maf_gs, load_pct, timing_deg, stft_pct, ltft_pct, inj_ms, ecm_v, exhcam_deg,
-                             vtc_pct, thr1_v, thr2_v, ped1_v, ped2_v, af_v, ac_v, fluid_wear, eng_hz, cvt_hz} | null}
+                             vtc_pct, thr1_v, thr2_v, ped1_v, ped2_v, af_v, ac_v, fluid_wear, run_h, run_warm_h,
+                             eng_hz, cvt_hz} | null}
                     {"alerts": [{id: "oil_pressure", mv, psi, rpm, min_mv} |
                                 {id: "coolant"|"oil_temp"|"cvt_temp"|"battery", value}]}
-                    {"dtcs": [{mod: "ECM"|"TCM"|"BCM", code: "P0420", quiet}], "dtc_scans": n,
-                     "dtc_hist": [{mod, code, quiet, first, last, n}]}   trouble codes, read once per engine start.
+                    {"dtcs": [{mod: "ECM"|"TCM"|"BCM"|..., code: "P0420", quiet, desc}], "dtc_scans": n,
+                     "dtc_hist": [{mod, code, quiet, desc, first, last, n}],
+                     "dtc_report": {t: "18:42", scope: "startup"|"all", mods: [{mod, ok}]} | null}   trouble codes:
+                     ECM / TCM / BCM once per engine start, every module on CHECK FOR CODES. desc = dtc_desc().
                      quiet = in DTC_QUIET (common, harmless: no yellow badge). History in ~/.local/share/hud/dtcs.json
                      (HUD_DTC_FILE): first / last time seen and in how many scans.
-    page -> server: {"cmd": "dtc_scan"}    CHECK FOR CODES on the CODES tab (only taken while that tab is open): one scan now
-    page -> server: {"cmd": "dtc_clear"}   hold-to-clear button on the CODES tab (only taken while that tab is open);
+    page -> server: {"cmd": "dtc_scan"}    CHECK FOR CODES on the MAINTENANCE tab (only taken while it is open): scan all now
+    page -> server: {"cmd": "dtc_clear"}   hold-to-clear button on the MAINTENANCE tab (only taken while it is open);
                     cvt_reader clears only with the car in P and stopped, then scans again
     server -> page: {"dtc_clear": "CODES CLEARED" | "NOT CLEARED · ..." | "STILL STORED · ..." | "NO CODES TO CLEAR"}
     On the main screen only eop_mv/rpm (1 s) and coolant/oil temp (7 s) are fresh; the rest is old or missing.
@@ -130,6 +133,61 @@ SAMPLES_FILE = os.path.expanduser(os.environ.get("HUD_SAMPLES_FILE", "~/.local/s
 SAMPLE_EVERY_S = 5.0      # one drive sample per 5 s (~540 rows for a 45 min drive): enough for a drive chart
 DTC_FILE = os.path.expanduser(os.environ.get("HUD_DTC_FILE", "~/.local/share/hud/dtcs.json"))
 DTC_QUIET = {"U1000", "U1001"}   # CAN communication history codes: common and harmless -> code history only, no badge
+# Short names for the MAINTENANCE tab: SAE generic meanings + Nissan (QR25DE / CVT / BCM) ones. Not listed -> dtc_desc's group.
+DTC_DESC = {
+    "P0011": "Intake cam timing over-advanced", "P0014": "Exhaust cam timing over-advanced",
+    "P0031": "A/F sensor heater low", "P0032": "A/F sensor heater high",
+    "P0037": "Rear O2 sensor heater low", "P0038": "Rear O2 sensor heater high",
+    "P0101": "MAF sensor - range / performance", "P0102": "MAF sensor - low input (no signal)",
+    "P0103": "MAF sensor - high input", "P0104": "MAF sensor - intermittent",
+    "P0112": "Intake air temp sensor low", "P0113": "Intake air temp sensor high",
+    "P0116": "Coolant temp sensor - range", "P0117": "Coolant temp sensor low", "P0118": "Coolant temp sensor high",
+    "P0122": "Throttle position sensor 1 low", "P0123": "Throttle position sensor 1 high",
+    "P0125": "Coolant too cold for closed loop", "P0130": "A/F sensor B1S1 - circuit",
+    "P0131": "A/F sensor B1S1 low", "P0132": "A/F sensor B1S1 high", "P0133": "A/F sensor B1S1 slow",
+    "P0137": "Rear O2 sensor low", "P0138": "Rear O2 sensor high", "P0139": "Rear O2 sensor slow",
+    "P0171": "System too lean", "P0172": "System too rich",
+    "P0222": "Throttle position sensor 2 low", "P0223": "Throttle position sensor 2 high",
+    "P0300": "Random misfire", "P0301": "Cylinder 1 misfire", "P0302": "Cylinder 2 misfire",
+    "P0303": "Cylinder 3 misfire", "P0304": "Cylinder 4 misfire",
+    "P0327": "Knock sensor low", "P0328": "Knock sensor high",
+    "P0335": "Crankshaft position sensor", "P0340": "Camshaft position sensor",
+    "P0420": "Catalyst efficiency low", "P0441": "EVAP purge flow",
+    "P0442": "EVAP small leak", "P0443": "EVAP purge valve circuit", "P0455": "EVAP large leak (gas cap?)",
+    "P0456": "EVAP very small leak", "P0460": "Fuel level sensor", "P0500": "Vehicle speed sensor",
+    "P0506": "Idle speed low", "P0507": "Idle speed high", "P0520": "Oil pressure sensor",
+    "P0562": "System voltage low", "P0563": "System voltage high",
+    "P0603": "ECM memory reset", "P0605": "ECM internal (ROM)", "P0607": "ECM performance",
+    "P0705": "Range (PNP) switch", "P0710": "CVT fluid temp sensor", "P0711": "CVT fluid temp sensor - range",
+    "P0715": "CVT input (primary) speed sensor", "P0720": "CVT output (secondary) speed sensor",
+    "P0730": "CVT belt slip / wrong ratio", "P0740": "Torque converter clutch solenoid",
+    "P0744": "Torque converter clutch - performance", "P0745": "Line pressure solenoid",
+    "P0746": "Pressure control solenoid A", "P0776": "Pressure control solenoid B",
+    "P0778": "Pressure control solenoid B - circuit", "P0840": "CVT fluid pressure sensor A",
+    "P0845": "CVT fluid pressure sensor B", "P0868": "CVT line pressure low",
+    "P1610": "Immobilizer (NATS) lock mode", "P17F0": "CVT judder", "P17F1": "CVT belt damage",
+    "P2096": "Post-cat fuel trim lean", "P2097": "Post-cat fuel trim rich",
+    "P2100": "Throttle motor circuit", "P2101": "Throttle motor - range", "P2118": "Throttle motor current",
+    "P2119": "Throttle body - range", "P2122": "Pedal sensor 1 low", "P2123": "Pedal sensor 1 high",
+    "P2127": "Pedal sensor 2 low", "P2128": "Pedal sensor 2 high",
+    "P2135": "Throttle sensors disagree", "P2138": "Pedal sensors disagree",
+    "C1101": "Wheel speed sensor RR", "C1102": "Wheel speed sensor RL", "C1103": "Wheel speed sensor FR",
+    "C1104": "Wheel speed sensor FL", "C1143": "Steering angle sensor", "C1155": "Brake fluid level",
+    "C1708": "TPMS - no data FL sensor", "C1709": "TPMS - no data FR sensor",
+    "C1710": "TPMS - no data RR sensor", "C1711": "TPMS - no data RL sensor",
+    "B2190": "Immobilizer antenna", "B2192": "Immobilizer ID mismatch (BCM / ECM)",
+    "U0100": "Lost contact with ECM", "U0101": "Lost contact with TCM", "U0121": "Lost contact with ABS",
+    "U0140": "Lost contact with BCM", "U0155": "Lost contact with cluster", "U0164": "Lost contact with HVAC",
+    "U1000": "CAN bus communication", "U1001": "CAN bus communication", "U1010": "Control module (CAN)",
+}
+
+
+def dtc_desc(code):
+    """MAINTENANCE tab text for a code: its short name, else its group (the letter, and 1 = Nissan's own)."""
+    if code in DTC_DESC:
+        return DTC_DESC[code]
+    group = {"P": "Engine / CVT", "C": "Chassis (brakes / ABS / TPMS)", "B": "Body / airbag", "U": "Network (CAN)"}
+    return group.get(code[:1], "Unknown") + (" - Nissan code" if code[1:2] == "1" else " - generic code")
 NO_CAR_GRACE_S = 25.0     # no RP2040 state after this long (bench): show the screen anyway
 WELCOME_WAIT_S = 20.0
 PAGE_SETTLE_S = 2.0       # page just connected (Chromium still loading / first paint): the welcome waits this long
@@ -897,8 +955,10 @@ class Hud:
 
     def dtc_state(self):
         # quiet = no badge / banner: the common CAN codes, and codes that are only stored (not failing now)
-        q = lambda codes: [dict(d, quiet=d["code"] in DTC_QUIET or not d.get("active", True)) for d in codes]
-        return {"dtcs": q(self.cvt.dtcs()), "dtc_hist": q(self.dtc_hist), "dtc_scans": self.cvt.dtc_version}
+        q = lambda codes: [dict(d, quiet=d["code"] in DTC_QUIET or not d.get("active", True), desc=dtc_desc(d["code"]))
+                           for d in codes]
+        return {"dtcs": q(self.cvt.dtcs()), "dtc_hist": q(self.dtc_hist), "dtc_scans": self.cvt.dtc_version,
+                "dtc_report": self.cvt.dtc_report()}
 
     def snapshot(self, art=True):
         """art=False: leave the cover out (it has not changed; it is 50-100 kB of base64)."""

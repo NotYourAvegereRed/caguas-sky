@@ -125,6 +125,21 @@ assert hdr_cmds[i - 2:i + 2] == ["ATSH740", "10C0", "14FFFFFF", "1081"], hdr_cmd
 j = hdr_cmds.index("14FFFFFF", i + 1)
 assert hdr_cmds[j - 2:j + 2] == ["ATSH752", "1003", "14FFFFFF", "1001"], hdr_cmds
 assert "14FF00" not in elm.sent
+# engine start: only ECM / TCM / BCM; CHECK FOR CODES: all, and the report says who answered
+r = c.CvtReader()
+elm = FakeElm(ROGUE)
+assert r._read_dtcs(elm, c.DTC_STARTUP) is True and not any(s in elm.sent for s in ("ATSH740", "ATSH744", "ATSH752", "ATSH758"))
+rep = r.dtc_report()
+assert rep["scope"] == "startup" and [m["mod"] for m in rep["mods"]] == ["ECM", "TCM", "BCM"] and all(m["ok"] for m in rep["mods"])
+assert r._read_dtcs(FakeElm({k: v for k, v in ROGUE.items() if k[0] != "758"})) is False
+rep = r.dtc_report()
+assert rep["scope"] == "all" and len(rep["mods"]) == len(c.DTC_MODULES) and [m["mod"] for m in rep["mods"] if not m["ok"]] == ["TPMS"]
+assert c.CvtReader().dtc_report() is None
+# run hours: the TCM's 21 10 block from the CVTz50 log (2026-05-26), the app showed 4929.0 / 3114.8 h
+blk = [0x61, 0x10, 0, 0, 0, 2, 0x73, 0x86, 0, 0, 0, 0, 0x1A, 0x73, 0, 0, 0, 0, 0, 0xA9, 0, 0, 0, 0, 0, 0x41, 0x49, 0x01] + [0] * 36
+assert c.run_hours(blk) == (4929.0, 3114.8)
+assert c.run_hours(blk[:20]) is None and c.run_hours([0x7F, 0x21, 0x12]) is None and c.run_hours(None) is None
+assert c.run_hours(c.isotp_payload(isotp("7E9", blk), "7E9")) == (4929.0, 3114.8)
 print("dtc ok")
 
 # ---- alerts: CVT fluid 100 C, voltage 11.7 / 11.8 V ----
@@ -157,4 +172,6 @@ else:
     h.log_dtcs(hist, [{"mod": "ECM", "code": "P0420"}]); h.log_dtcs(hist, [])
     h.log_dtcs(hist, [{"mod": "ECM", "code": "P0420"}, {"mod": "BCM", "code": "U1000"}])
     assert [(e["code"], e["n"]) for e in hist] == [("P0420", 2), ("U1000", 1)] and h.load_dtc_hist() == hist
+    assert h.dtc_desc("P0102") == "MAF sensor - low input (no signal)" and h.dtc_desc("P1234") == "Engine / CVT - Nissan code"
+    assert h.dtc_desc("C0999") == "Chassis (brakes / ABS / TPMS) - generic code" and h.dtc_desc("X0000").startswith("Unknown")
 print("alerts + history ok")

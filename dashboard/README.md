@@ -165,7 +165,16 @@ The scan itself never clears. It freezes the gauges for about 1-2 s.
   `journalctl -u hud-service | grep DTC` (one line per module and request: codes, "no codes", "no answer" or the refusal).
 - Preview: `?demo=1&alert=dtc`. Self-check: `python3 dashboard/service/dtc_test.py`.
 
-## Clear codes from the CODES tab (2026-11-10)
+## MAINTENANCE tab (was CODES), 2026-11-24
+- The engine-start scan only reads ECM, TCM and BCM (`DTC_STARTUP` in cvt_reader.py). ABS, HVAC, SRS and TPMS are
+  read only by CHECK ALL MODULES (and by the clear).
+- Left = the last scan: time, engine start or full scan, every module asked (OK / N CODES / NO ANSWER) and each code
+  with a short meaning (`DTC_DESC` / `dtc_desc` in hud_service.py; codes not listed show their group). Right = code
+  history with the same meaning. The page gets `dtc_report` {t, scope, mods} and a `desc` on every code.
+- CVT column on ALL: run hours and run hours warm (TCM `21 10`, bytes 4-5 and 24-25 / 6, from the CVTz50 app),
+  read with the fluid wear once a minute. Preview: `?demo=1&page=tele&alert=dtc&tab=codes`.
+
+## Clear codes from the MAINTENANCE tab (2026-11-10)
 The only thing the dash ever writes to the car. HOLD the red button 2 s (shown only while there are codes).
 cvt_reader refuses unless the TCM says gear P and speed 0 (the engine may run: without it the screen is off), scans first (so the
 history keeps what is cleared), clears only the modules that have a code, then scans again and tells the page.

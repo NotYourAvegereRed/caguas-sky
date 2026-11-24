@@ -45,3 +45,6 @@ PID (mode 22),Request,Header,Reply,Bytes,Name,Formula,Unit,Example raw -> value,
 120D / 120E,22120D / 22120E,7E0,7E8,2,Pedal sensor 1 / 2,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),
 1225,221225,7E0,7E8,2,A/F sensor B1S1,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),
 1223,221223,7E0,7E8,2,A/C pressure sensor,(A*256+B)*0.005,V,,Confirmed vs Car Scanner,Yes (telemetry),
+1214,221214,7E1,7E9,2,Engine torque (CVTz50 VENG_TRQ),signed (A*256+B) / 10,Nm,00 CD -> 20.5,Confirmed vs CVTz50 VENG_TRQ (r 0.998; 389 samples),No,Not the same DID as 1213 (dashboard uses 1213)
+1301,221301,7E1,7E9,1,Selector position (bit flags),16 = P / 32 = R / 64 = N / 128 = D,-,80 -> D,Confirmed vs CVTz50 LEVER (393 samples),No,Same information as 1119
+2110,2110,7E1,7E9,64,CVT run hours / run hours warm,data bytes 4-5 / 6 and 24-25 / 6,h,73 86 -> 4929.0 / 49 01 -> 3114.8,CVTz50 v1.63 recipe + its screen (2026-05-26),Yes (telemetry),Service 21 LID 10; read once a minute with the fluid wear

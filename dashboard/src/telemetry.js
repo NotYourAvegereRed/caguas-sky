@@ -5,7 +5,8 @@
 // Data in (events from hud.js):  "hud-cvt" -> cvt dict | null (~12/s),  "hud-msg" -> {eng} / {alerts} / {dtcs},
 //                                 "hud-open" -> the websocket (re)connected.
 // Data out: window.hud.send({cmd:"view", view}).   Taps that are not swipes -> "hud-tap" (volume in hud.js).
-// ?demo=1 fake data (add &alert=oil|coolant|oiltemp|cvt|battery|dtc to force an alert / trouble codes), ?page=tele opens on this page.
+// ?demo=1 fake data (add &alert=oil|coolant|oiltemp|cvt|battery|dtc to force an alert / trouble codes), ?page=tele opens on this page
+// (&tab=all|dyno|codes picks the tab).
 
 const Q = new URLSearchParams(location.search);
 const DEMO = Q.get("demo") === "1";
@@ -19,6 +20,7 @@ const LOCK_TEXT = { open: "Unlocked", engaging: "Engaging", releasing: "Releasin
 let E = null, C = null, ALERTS = [];
 let CLEAR_MSG = "";                                  // result of the last CHECK / CLEAR (hud-service: {dtc_clear})
 let DTCS = [], HIST = [], SCANS = 0;                 // codes from the last scan, code history, scans done (0 = not yet)
+let REPORT = null;                                   // last scan: {t, scope: startup|all, mods: [{mod, ok}]}
 let PWD = {}, pwTs = 0;                              // power fields (eng_nm, hp, ratio...), from whichever message is newer
 const PW = (k) => performance.now() - pwTs < 3000 ? PWD[k] ?? null : null;
 const takePower = (d) => { if (d && d.eng_nm !== undefined) { PWD = d; pwTs = performance.now(); } };
@@ -36,9 +38,9 @@ page.innerHTML = `
   <div class="t-head">
     <div class="t-brand"><b>ROGUE</b><span>TELEMETRY</span></div>
     <div class="t-tabs" id="t-tabs">
-      <i class="t-tabbg" style="left:0"></i><i class="t-tabbg" style="left:122px"></i><i class="t-tabbg" style="left:244px"></i>
+      <i class="t-tabbg" style="left:0"></i><i class="t-tabbg" style="left:122px"></i><i class="t-tabbg t-wide" style="left:244px"></i>
       <i class="t-hl" id="t-hl"></i>
-      <div class="t-tab on" data-t="all">ALL</div><div class="t-tab" data-t="dyno">DYNO</div><div class="t-tab" data-t="codes">CODES</div>
+      <div class="t-tab on" data-t="all">ALL</div><div class="t-tab" data-t="dyno">DYNO</div><div class="t-tab t-wide" data-t="codes">MAINTENANCE</div>
     </div>
     <div class="t-status"><span>ECM<i class="t-dot" id="t-ecm"></i></span><span>TCM<i class="t-dot" id="t-tcm"></i></span>
       <span class="t-hz" id="t-hz">-- HZ</span><span class="t-clock" id="t-clock">--:--</span></div>
@@ -73,6 +75,8 @@ const F = {
   vtc:     { l: "Exh VTC", u: "%", d: 1, get: () => E?.vtc_pct },
   cvtt:    { l: "Fluid temp", u: "°C", get: () => C?.temp_c, bar: [20, 130, [[90, 100, W_], [100, 130, R_]]], st: hiState(LIM.cvt) },
   wear:    { l: "Fluid wear", u: `/ ${WEAR_MAX}`, get: () => E?.fluid_wear, bar: [0, WEAR_MAX, [[WEAR_MAX * .75, WEAR_MAX * .9, W_], [WEAR_MAX * .9, WEAR_MAX, R_]]], st: hiState([WEAR_MAX * .75, WEAR_MAX * .9]) },
+  runh:    { l: "CVT run hours", u: "h", d: 1, get: () => E?.run_h },                // TCM 2110, once a minute like the wear
+  runw:    { l: "Run hours warm", u: "h", d: 1, get: () => E?.run_warm_h },
   thr1: { l: "Throttle 1", u: "V", d: 2, get: () => E?.thr1_v }, thr2: { l: "Throttle 2", u: "V", d: 2, get: () => E?.thr2_v },
   ped1: { l: "Pedal 1", u: "V", d: 2, get: () => E?.ped1_v },    ped2: { l: "Pedal 2", u: "V", d: 2, get: () => E?.ped2_v },
   af:   { l: "A/F B1S1", u: "V", d: 2, get: () => E?.af_v },     ac:   { l: "A/C press", u: "V", d: 2, get: () => E?.ac_v },
@@ -110,7 +114,7 @@ const colCvt = (i) => `<div class="t-col" style="--i:${i}"><h3>CVT</h3>${item("c
     <tr><td>RATIO</td><td class="n" data-p="ratio_target">--</td><td class="n" data-p="ratio">--</td></tr></table>
   <div class="t-row" style="margin:12px 0 14px;align-items:center"><span class="t-chip" data-lockchip>--</span>
     <span class="t-mini t-lockinfo">SLIP <b data-slip>--</b><br>TCC <b data-tcc>--</b></span></div>
-  ${item("wear", "sm")}</div>`;
+  ${item("wear", "sm")}<div class="t-pair">${item("runh", "sm")}${item("runw", "sm")}</div></div>`;
 const strip = (i) => `<div class="t-strip" style="--i:${i}">${["ecmv", "thr1", "thr2", "ped1", "ped2", "af", "ac"].map((k) =>
   `<div data-f="${k}"><div class="t-lbl">${F[k].l}</div><div class="t-val"><b>--</b><u>${F[k].u}</u></div></div>`).join("")}</div>`;
 
@@ -121,23 +125,29 @@ const VIEWS = {
     <div class="t-sub" id="dy-sub">--</div><div class="t-sub" id="dy-best" style="margin-top:8px"></div>`)}
     ${tile("hp", 1)}${tile("engnm", 2)}${tile("sec", 3)}${tile("lock", 4, LOCK_TILE)}${tile("peak", 5, `<div class="t-peaks"><div><div class="t-lbl">Power</div><div class="t-val"><b id="pk-hp">--</b><u>hp</u></div></div><div><div class="t-lbl">Torque</div><div class="t-val"><b id="pk-nm">--</b><u>Nm</u></div></div><div><div class="t-lbl">SEC actual</div><div class="t-val"><b id="pk-sec">--</b><u>MPa</u></div></div><div><div class="t-lbl">PRI actual</div><div class="t-val"><b id="pk-pri">--</b><u>MPa</u></div></div></div><div class="t-sub" id="pk-sub">no run yet</div>`)}</div>`
 };
-// codes tab: left = what the last scan found, right = every code ever seen (newest first)
-const HIST_ROWS = 9;
+// maintenance tab: left = last scan, module by module (answered or not, its codes with a short name),
+// right = every code ever seen (newest first). Engine start scans ECM / TCM / BCM, CHECK FOR CODES scans all.
+// Both lists scroll up / down when they do not fit.
 VIEWS.codes = () => {
   const key = (d) => `${d.mod} ${d.code}`, now = new Set(DTCS.map(key));
-  const cur = !SCANS ? `<div class="t-mini">NOT SCANNED YET<br>10 s after the engine starts</div>`
-    : !DTCS.length ? `<div class="t-val" style="color:var(--ok)"><b>NO CODES</b></div>`
-    : DTCS.map((d) => `<div class="t-row${d.quiet ? " t-quiet" : ""}"><span class="t-lbl">${d.mod}${d.active === false ? " · stored" : d.quiet ? " · common" : ""}</span><span class="t-val"><b>${d.code}</b></span></div>`).join("");
+  const mods = REPORT?.mods ?? [...new Set(DTCS.map((d) => d.mod))].map((mod) => ({ mod, ok: true }));
+  const code = (d) => `<div class="t-mcode${d.quiet ? " t-quiet" : ""}"><b>${d.code}</b><span>${d.desc ?? ""}${d.active === false ? " · stored" : d.quiet ? " · common" : ""}</span></div>`;
+  const mod = (m) => {
+    const c = DTCS.filter((d) => d.mod === m.mod);
+    return `<div class="t-mod"><span class="t-lbl">${m.mod}</span><span class="t-mst ${!m.ok ? "bad" : c.length ? "warn" : "ok"}">${!m.ok ? "NO ANSWER" : c.length ? `${c.length} CODE${c.length > 1 ? "S" : ""}` : "OK"}</span></div>${c.map(code).join("")}`;
+  };
+  const head = !REPORT ? "" : `<div class="t-mini">${REPORT.t} · ${REPORT.scope === "all" ? "FULL SCAN · ALL MODULES" : "ENGINE START · ECM TCM BCM"}</div>`;
+  const cur = !SCANS ? `<div class="t-mini">NOT SCANNED YET<br>ECM / TCM / BCM 10 s after the engine starts</div>`
+    : head + (mods.length ? mods.map(mod).join("") : `<div class="t-val" style="color:var(--ok)"><b>NO CODES</b></div>`);
   const rows = [...HIST].sort((a, b) => String(b.last).localeCompare(String(a.last)));
-  const tr = (d) => `<tr class="${now.has(key(d)) ? "now" : ""}${d.quiet ? " t-quiet" : ""}"><td class="n">${d.code}</td><td>${d.mod}${d.quiet ? " · common" : ""}</td><td>${d.first ?? "--"}</td><td>${d.last ?? "--"}</td><td class="n">${d.n ?? "--"}</td></tr>`;
-  return `<div class="t-grid" style="grid-template-columns:1fr 2.2fr;height:450px">
-    <div class="t-col" style="--i:0"><h3>NOW · ALL MODULES</h3>${cur}
-      <div class="t-clear t-scan" id="t-scan" role="button"><span>CHECK FOR CODES</span></div>
-      <div class="t-clear"${DTCS.length ? "" : " hidden"} id="t-clear" role="button"><i></i><span>HOLD 2 S TO CLEAR</span></div>
+  const tr = (d) => `<tr class="${now.has(key(d)) ? "now" : ""}${d.quiet ? " t-quiet" : ""}"><td class="n">${d.code}</td><td>${d.mod}</td><td class="t-desc">${d.desc ?? ""}</td><td>${d.last ?? "--"}</td><td class="n">${d.n ?? "--"}</td></tr>`;
+  return `<div class="t-grid" style="grid-template-columns:1.25fr 1.75fr;grid-template-rows:minmax(0,1fr);height:450px">
+    <div class="t-col" style="--i:0"><h3>LAST SCAN</h3><div class="t-mods t-scroll">${cur}</div>
+      <div class="t-btns"><div class="t-clear t-scan" id="t-scan" role="button"><span>CHECK ALL MODULES</span></div>
+      <div class="t-clear"${DTCS.length ? "" : " hidden"} id="t-clear" role="button"><i></i><span>HOLD 2 S TO CLEAR</span></div></div>
       <div class="t-mini" id="t-clearmsg">${CLEAR_MSG || (DTCS.length ? "in P · car stopped" : "")}</div></div>
-    <div class="t-col" style="--i:1"><h3>CODE HISTORY</h3><table class="t-ptab t-ctab"><tr><th>CODE</th><th>MODULE</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>SCANS</th></tr>
-      ${rows.slice(0, HIST_ROWS).map(tr).join("") || `<tr><td colspan="5">nothing stored yet</td></tr>`}</table>
-      ${rows.length > HIST_ROWS ? `<div class="t-mini">+${rows.length - HIST_ROWS} OLDER</div>` : ""}</div></div>`;
+    <div class="t-col" style="--i:1"><h3>CODE HISTORY</h3><div class="t-scroll"><table class="t-ptab t-ctab"><tr><th>CODE</th><th>MODULE</th><th>WHAT IT MEANS</th><th>LAST SEEN</th><th>SCANS</th></tr>
+      ${rows.map(tr).join("") || `<tr><td colspan="5">nothing stored yet</td></tr>`}</table></div></div></div>`;
 };
 F.dyno = { l: "0-60 mph" };
 F.peak = { l: "Last run · peaks" };
@@ -337,10 +347,11 @@ content.addEventListener("pointerdown", (e) => {
 for (const ev of ["pointerup", "pointercancel", "pointerleave", "pointermove"]) content.addEventListener(ev, (e) => { if (ev !== "pointermove" || !e.target.closest?.("#t-clear")) holdEnd(); });
 let codesSig = "";
 function setCodes(d) {
-  const sig = JSON.stringify([d.dtcs, d.dtc_hist, d.dtc_scans]);
+  const sig = JSON.stringify([d.dtcs, d.dtc_hist, d.dtc_scans, d.dtc_report]);
   if (sig === codesSig) return;                        // same as before (it comes every second): no re-render, the hold bar keeps filling
   codesSig = sig;
   DTCS = Array.isArray(d.dtcs) ? d.dtcs : []; HIST = Array.isArray(d.dtc_hist) ? d.dtc_hist : HIST; SCANS = d.dtc_scans ?? SCANS;
+  REPORT = d.dtc_report ?? REPORT;
   setAlerts(ALERTS);
   if (tab === "codes") render();
 }
@@ -357,7 +368,7 @@ const hl = $("t-hl");
 function setTab(t) {
   if (!VIEWS[t]) return;
   const idx = ["all", "dyno", "codes"].indexOf(t);
-  hl.style.left = `${idx * 122}px`;
+  hl.style.left = `${idx * 122}px`; hl.classList.toggle("t-wide", t === "codes");
   document.querySelectorAll(".t-tab").forEach((e) => e.classList.toggle("on", e.dataset.t === t));
   if (t === tab) return;
   tab = t; sendView();
@@ -476,7 +487,7 @@ if (DEMO) {
     E = { rpm, coolant_c: forced === "coolant" ? 111 : 86, oil_c: forced === "oiltemp" ? 131 : 81, iat_c: 52, fuel_c: 34,
           eop_mv: low ? 920 : Math.round(1480 + rpm * .5), maf_gs: +(2.2 + rpm / 400).toFixed(2), load_pct: 21.1, timing_deg: 9,
           stft_pct: Math.round(3 * Math.sin(t)), ltft_pct: -5, inj_ms: 2.5, ecm_v: 13.6, exhcam_deg: 0, vtc_pct: 0,
-          thr1_v: .7, thr2_v: .7, ped1_v: .77, ped2_v: .77, af_v: 2.18, ac_v: 1.54, fluid_wear: 109, eng_hz: 3.2, cvt_hz: 11.8,
+          thr1_v: .7, thr2_v: .7, ped1_v: .77, ped2_v: .77, af_v: 2.18, ac_v: 1.54, fluid_wear: 109, run_h: 4929, run_warm_h: 3114.8, eng_hz: 3.2, cvt_hz: 11.8,
           eng_nm: Math.round(25 + rpm / 12), ratio: +(2.2 - rpm / 1800).toFixed(3), ratio_target: +(2.18 - rpm / 1800).toFixed(3),
           pri_rpm: rpm, sec_rpm: Math.round(rpm / Math.max(.4, 2.2 - rpm / 1800)), tc_factor: 1 };
     E.hp = +Math.max(0, E.eng_nm * rpm / 7121).toFixed(1); E.wheel_nm = Math.round(E.eng_nm * E.ratio * 5.65 * .9);
@@ -488,14 +499,18 @@ if (DEMO) {
   const A = { oil: [{ id: "oil_pressure", mv: 920, psi: 3.1, rpm: 780, min_mv: 1000 }], coolant: [{ id: "coolant", value: 111 }], oiltemp: [{ id: "oil_temp", value: 131 }],
               cvt: [{ id: "cvt_temp", value: 101 }], battery: [{ id: "battery", value: 11.6 }] };
   setTimeout(() => { setAlerts(A[forced] || []); if (forced === "dtc") setCodes({ dtc_scans: 1,
-    dtcs: [{ mod: "ECM", code: "P0420" }, { mod: "TCM", code: "P17F0" }, { mod: "BCM", code: "U1000", quiet: true }],
-    dtc_hist: [{ mod: "ECM", code: "P0420", first: "2026-11-02 08:10", last: "2026-11-10 17:42", n: 6 }, { mod: "TCM", code: "P17F0", first: "2026-11-10 17:42", last: "2026-11-10 17:42", n: 1 },
-               { mod: "BCM", code: "U1000", quiet: true, first: "2026-10-20 07:55", last: "2026-11-10 17:42", n: 31 }, { mod: "ECM", code: "P0101", first: "2026-10-22 18:03", last: "2026-10-23 07:50", n: 2 }] }); }, 50);
+    dtc_report: { t: "18:42", scope: "all", mods: ["ECM", "TCM", "BCM", "ABS", "HVAC", "SRS", "TPMS"].map((mod) => ({ mod, ok: mod !== "TPMS" })) },
+    dtcs: [{ mod: "ECM", code: "P0102", desc: "MAF sensor - low input (no signal)" }, { mod: "TCM", code: "P17F0", desc: "CVT judder" },
+           { mod: "BCM", code: "U1000", desc: "CAN bus communication", quiet: true }, { mod: "ABS", code: "C1130", desc: "Chassis (brakes / ABS / TPMS) - Nissan code", active: false, quiet: true }],
+    dtc_hist: [{ mod: "ECM", code: "P0102", desc: "MAF sensor - low input (no signal)", first: "2026-11-10 08:10", last: "2026-11-24 18:42", n: 6 }, { mod: "TCM", code: "P17F0", desc: "CVT judder", first: "2026-11-24 18:42", last: "2026-11-24 18:42", n: 1 },
+               { mod: "BCM", code: "U1000", desc: "CAN bus communication", quiet: true, first: "2026-10-20 07:55", last: "2026-11-24 18:42", n: 31 },
+               { mod: "ABS", code: "C1130", desc: "Chassis (brakes / ABS / TPMS) - Nissan code", quiet: true, first: "2026-11-19 16:15", last: "2026-11-24 18:42", n: 3 },
+               { mod: "ECM", code: "P0101", desc: "MAF sensor - range / performance", first: "2026-10-22 18:03", last: "2026-10-23 07:50", n: 2 }] }); }, 50);
 }
 
 render();
 document.body.dataset.view = "main";
 pageMain.classList.remove("pg-off"); page.classList.add("pg-off"); pageDsp?.classList.add("pg-off");
-if (Q.get("page") === "tele") { introPending = Q.get("intro") === "1"; go("tele"); }
+if (Q.get("page") === "tele") { introPending = Q.get("intro") === "1"; go("tele"); if (Q.get("tab")) setTab(Q.get("tab")); }
 if (Q.get("page") === "dsp") go("dsp");
 window.tele = { go, setTab, setAlerts, setCodes };

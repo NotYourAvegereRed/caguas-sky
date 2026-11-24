@@ -63,6 +63,7 @@ body.pg-drag .pg { transition: none; }
 .t-tab { position: relative; width: 116px; height: 32px; display: flex; align-items: center; justify-content: center;
   font: 700 italic 18px/1 TBarlow; letter-spacing: 1.5px; color: var(--dim); transition: color .25s; cursor: pointer; }
 .t-tab.on { color: #0b0c0e; }
+.t-tab.t-wide, .t-tabbg.t-wide, .t-hl.t-wide { width: 180px; } .t-hl { transition: left .3s var(--ease), width .3s var(--ease); }
 .t-status { margin-left: auto; display: flex; align-items: center; gap: 16px; padding-right: 16px; font: 500 12px/1 TMono; color: var(--dim); }
 .t-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); margin-left: 5px; transition: background .3s, box-shadow .3s; }
 .t-dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
@@ -140,6 +141,17 @@ body.pg-drag .pg { transition: none; }
 /* codes tab */
 .t-ptab.t-ctab th, .t-ptab.t-ctab td.n { text-align: left; } .t-ptab.t-ctab td { padding: 8px 0; }
 .t-ctab tr.now td.n:first-child { color: var(--warn); } .t-quiet { opacity: .45; }
+.t-ctab { table-layout: fixed; } .t-ctab th { position: sticky; top: 0; z-index: 1; background: var(--panel2); padding-top: 4px; } .t-ctab td.t-desc { color: var(--dim); padding-right: 10px; line-height: 1.25; }
+.t-ctab th:nth-child(1) { width: 78px; } .t-ctab th:nth-child(2) { width: 54px; } .t-ctab th:nth-child(4) { width: 96px; } .t-ctab th:nth-child(5) { width: 52px; }
+.t-ctab td:nth-child(4) { line-height: 1.25; }
+/* scan list + history scroll by finger (body is touch-action: none); a sideways swipe still changes page */
+.t-scroll { flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.t-mods > .t-mini { margin-bottom: 8px; }
+.t-btns { display: flex; gap: 8px; margin-top: 10px; } .t-btns .t-clear { flex: 1; margin-top: 0; font-size: 15px; }
+.t-mod { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.t-mst { font: 600 12px/1 TMono; letter-spacing: 1px; } .t-mst.ok { color: var(--ok); } .t-mst.warn { color: var(--warn); } .t-mst.bad { color: var(--crit); }
+.t-mcode { display: flex; gap: 10px; align-items: baseline; padding: 0 0 6px 14px; font: 500 13px/1.25 TMono; }
+.t-mcode b { color: var(--warn); font-weight: 700; min-width: 52px; } .t-mcode span { color: var(--dim); }
 .t-clear { position: relative; margin-top: auto; height: 54px; display: grid; place-items: center; border: 1px solid var(--crit); color: var(--crit);
   font: 700 italic 18px/1 TBarlow; letter-spacing: 2px; cursor: pointer; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
 .t-clear[hidden] { display: none; } .t-clear span { position: relative; }
@@ -147,7 +159,6 @@ body.pg-drag .pg { transition: none; }
 .t-clear.hold i { width: 100%; transition: width 2s linear; }
 #t-clearmsg { margin-top: 8px; min-height: 14px; }
 .t-scan { border-color: var(--line2); color: var(--ink); } .t-scan:active { background: var(--panel2); }
-.t-scan + .t-clear { margin-top: 8px; }
 
 /* alert banner */
 .t-toast { position: absolute; left: 262px; top: 58px; width: 500px; height: 72px; display: flex; align-items: center; gap: 14px; padding: 0 22px 0 18px;
